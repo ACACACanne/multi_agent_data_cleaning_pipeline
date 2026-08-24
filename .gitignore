@@ -1,26 +1,86 @@
-# VS Code History & Settings
-.history/
-.vscode/
-
-# Databases & temporary DB files
-*.db
-*.db-shm
-*.db-wal
-backend/*.db
-backend/*.db-shm
-backend/*.db-wal
-
-# Environment variables & secrets
+# ==========================================
+# Environments & Secrets
+# ==========================================
 .env
 .env.*
 *.env
+!.env.example
 
-# Data uploads & backups
-data/uploads/*
-backend/data/uploads/*
+# ==========================================
+# Virtual Environments (Python)
+# ==========================================
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+*/venv/
+*/.venv/
+
+# ==========================================
+# Node / Frontend Dependencies & Builds
+# ==========================================
+node_modules/
+*/node_modules/
+dist/
+build/
+.next/
+out/
+
+# ==========================================
+# Databases, Uploads & Dynamic Storage
+# ==========================================
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/
+data/*
+backend/data/
+backend/data/*
+!backend/data/.gitkeep
+datasets_storage.json
+audit_reports.json
+metadata.json
+
+# ==========================================
+# Logs
+# ==========================================
+logs/
+backend/logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==========================================
+# Python Build Artifacts & Caches
+# ==========================================
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*/.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 *.bak
 
-# Python caches
-__pycache__/
-*.py[cod]
-*.egg-info/
+# ==========================================
+# IDEs & Editor Histories
+# ==========================================
+.history/
+*/.history/
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ==========================================
+# Operating System Files
+# ==========================================
+.DS_Store
+Thumbs.db
