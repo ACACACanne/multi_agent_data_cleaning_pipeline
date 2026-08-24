@@ -1,0 +1,25 @@
+{
+  // Tell VS Code where your Python interpreter is
+  "python.defaultInterpreterPath": "venv/Scripts/python.exe",
+
+  // Fix import resolution for backend/src
+  "python.analysis.extraPaths": ["backend/src"],
+  "python.autoComplete.extraPaths": ["backend/src"],
+
+  // Make Pylance smarter about imports
+  "python.analysis.useImportHeuristic": true,
+
+  // Enable linting + formatting
+  "python.linting.enabled": true,
+  "python.linting.pylintEnabled": true,
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+
+  // Optional: reduce false import warnings
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingImports": "warning"
+  },
+  "python-envs.defaultEnvManager": "ms-python.python:system",
+  "python.analysis.typeCheckingMode": "basic",
+  "cSpell.words": ["remediator"]
+}

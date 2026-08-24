@@ -1,0 +1,26 @@
+# VS Code History & Settings
+.history/
+.vscode/
+
+# Databases & temporary DB files
+*.db
+*.db-shm
+*.db-wal
+backend/*.db
+backend/*.db-shm
+backend/*.db-wal
+
+# Environment variables & secrets
+.env
+.env.*
+*.env
+
+# Data uploads & backups
+data/uploads/*
+backend/data/uploads/*
+*.bak
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/

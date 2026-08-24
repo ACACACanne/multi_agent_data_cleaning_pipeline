@@ -1,0 +1,20 @@
+#root/docker-compose.yml
+version: "3.8"
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+    environment:
+      - HEALTHCARE_MODE=false
+  chroma:
+    image: chromadb/chromadb:latest
+    ports:
+      - "8001:8001"
+  presidio:
+    image: mcr.microsoft.com/presidio/presidio-analyzer:latest
+    # Note: real Presidio setup requires more config; this is a placeholder
