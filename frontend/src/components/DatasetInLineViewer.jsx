@@ -1,3 +1,4 @@
+//frontend/src/components/DatasetInLineViewer.jsx
 import React, { useEffect, useState, useRef } from "react";
 import PropTypes from "prop-types";
 import { fetchDatasetRows } from "../services/api";

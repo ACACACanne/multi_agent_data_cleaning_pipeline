@@ -1,3 +1,4 @@
+//frontend/src/components/RecordsTable.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { fetchDatasetRows } from "../services/api";

@@ -358,7 +358,7 @@ export default function Dashboard() {
               type="button"
               onClick={() => setShowHistoryDrawer(true)}
               aria-label="View remediation history"
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition shadow-sm"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition shadow-sm cursor-pointer"
             >
               View Remediation History
             </button>
@@ -377,7 +377,11 @@ export default function Dashboard() {
 
         {/* RIGHT COLUMN: Telemetry, Benchmarking, Experiments, Notes (1 Col Wide) */}
         <div className="space-y-6">
-          <MetricsPanel />
+          <MetricsPanel
+            metrics={metrics}
+            datasets={visibleDatasets}
+            onRefresh={refreshAll}
+          />
           <BaselineMetricsPanel />
           <EvaluationPanel />
           <ExperimentRunner />
@@ -426,7 +430,7 @@ export default function Dashboard() {
                 type="button"
                 onClick={closeViewerModal}
                 aria-label="Close dataset viewer"
-                className="px-3 py-1 text-xs font-semibold rounded bg-brand-dark text-gray-200 border border-brand-accent/30 hover:border-brand-accent hover:text-white transition"
+                className="px-3 py-1 text-xs font-semibold rounded bg-brand-dark text-gray-200 border border-brand-accent/30 hover:border-brand-accent hover:text-white transition cursor-pointer"
               >
                 Close
               </button>

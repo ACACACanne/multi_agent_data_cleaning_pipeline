@@ -1,3 +1,4 @@
+// frontend/src/components/BaselineMetricsPanel.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { fetchAgentsMetrics } from "../services/api";
@@ -5,6 +6,7 @@ import { fetchAgentsMetrics } from "../services/api";
 /**
  * BaselineMetricsPanel (Agent Metrics)
  * Displays aggregate performance indicators for Auditor, Remediator, and Validator agents.
+ * Exclusively renders real telemetry returned by the backend multi-agent pipeline.
  */
 export default function BaselineMetricsPanel({ className = "" }) {
   const [data, setData] = useState(null);
@@ -29,6 +31,7 @@ export default function BaselineMetricsPanel({ className = "" }) {
     loadAgentMetrics();
   }, [loadAgentMetrics]);
 
+  // Safe percentage formatter
   const fmtPercent = (val) => {
     if (val === null || val === undefined) return "—";
     const num = Number(val);
@@ -36,20 +39,33 @@ export default function BaselineMetricsPanel({ className = "" }) {
     return num <= 1.0 ? `${(num * 100).toFixed(1)}%` : `${num.toFixed(1)}%`;
   };
 
-  const cleanerAccuracy =
-    data?.cleaner_accuracy ?? data?.cleanerAccuracy ?? 0.984;
-  const validatorRejectionRate =
-    data?.validator_rejection_rate ?? data?.validatorRejectionRate ?? 0.016;
+  // Safe float extractor
+  const safeFloat = (v) => {
+    if (v === null || v === undefined) return null;
+    const parsed = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+  };
 
+  // 1. Dynamic Agent KPI Extraction (No Hardcoded Fallbacks)
+  const cleanerAccuracy = safeFloat(
+    data?.cleaner_accuracy ??
+      data?.cleanerAccuracy ??
+      data?.accuracy ??
+      data?.record_accuracy,
+  );
+
+  const validatorRejectionRate = safeFloat(
+    data?.validator_rejection_rate ??
+      data?.validatorRejectionRate ??
+      data?.rejection_rate,
+  );
+
+  // 2. Real Agent Breakdown List
   const agentsList = Array.isArray(data?.agents)
     ? data.agents
     : Array.isArray(data?.agent_metrics)
       ? data.agent_metrics
-      : [
-          { name: "Auditor Agent", accuracy: 0.988, rejection_rate: 0.012 },
-          { name: "Remediator Agent", accuracy: 0.974, rejection_rate: 0.026 },
-          { name: "Validator Agent", accuracy: 0.996, rejection_rate: 0.004 },
-        ];
+      : [];
 
   return (
     <div
@@ -61,7 +77,7 @@ export default function BaselineMetricsPanel({ className = "" }) {
           type="button"
           onClick={loadAgentMetrics}
           disabled={loading}
-          className="px-2.5 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition disabled:opacity-50"
+          className="px-2.5 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition disabled:opacity-50 cursor-pointer"
         >
           {loading ? "..." : "Refresh"}
         </button>
@@ -95,13 +111,14 @@ export default function BaselineMetricsPanel({ className = "" }) {
       {/* Individual Agent Breakdown */}
       <div className="space-y-2 pt-1">
         {agentsList.length === 0 ? (
-          <div className="text-gray-400 italic text-xs">
-            No agent metrics available.
+          <div className="text-gray-400 italic text-xs p-3 text-center bg-brand-dark/30 rounded-lg border border-brand-accent/5">
+            No agent telemetry captured yet. Run the cleaner pipeline to compute
+            metrics.
           </div>
         ) : (
           agentsList.map((agent, idx) => {
-            const acc = agent.accuracy ?? agent.success_rate ?? 0.98;
-            const rej = agent.rejection_rate ?? 0.01;
+            const acc = safeFloat(agent.accuracy ?? agent.success_rate);
+            const rej = safeFloat(agent.rejection_rate);
 
             return (
               <div
@@ -110,10 +127,10 @@ export default function BaselineMetricsPanel({ className = "" }) {
               >
                 <div>
                   <div className="font-semibold text-gray-200">
-                    {agent.name}
+                    {agent.name || `Agent ${idx + 1}`}
                   </div>
                   <div className="text-[10px] text-gray-400">
-                    {agent.role || "Pipeline Step"}
+                    {agent.role || agent.action || "Pipeline Agent"}
                   </div>
                 </div>
                 <div className="text-right font-mono">

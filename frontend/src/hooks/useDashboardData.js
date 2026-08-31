@@ -14,15 +14,6 @@ import {
   fetchEvaluations,
 } from "../services/api";
 
-/**
- * useDashboardData
- *
- * Dynamically binds backend multi-agent evaluation telemetry,
- * hardware profiling, dimensional metrics, and execution trajectories.
- *
- * - autoLoad: boolean (default true)
- * - pollIntervalMs: number | null
- */
 export default function useDashboardData({
   autoLoad = true,
   pollIntervalMs = null,
@@ -96,7 +87,6 @@ export default function useDashboardData({
         evaluationsRes,
       ] = results;
 
-      // 1. Datasets Array Parsing
       let currentDatasets = [];
       if (dsRes.status === "fulfilled" && dsRes.value) {
         currentDatasets = Array.isArray(dsRes.value)
@@ -105,7 +95,6 @@ export default function useDashboardData({
         setDatasets(currentDatasets);
       }
 
-      // 2. Logs and History
       if (runsRes.status === "fulfilled" && runsRes.value) {
         setRunLog(Array.isArray(runsRes.value) ? runsRes.value : []);
       }
@@ -116,19 +105,12 @@ export default function useDashboardData({
         );
       }
 
-      // 3. Sub-system Metric States
       if (metricsDatasetsRes.status === "fulfilled")
         setMetricsDatasets(metricsDatasetsRes.value ?? null);
-
       if (agentSummaryRes.status === "fulfilled")
         setAgentMetricsSummary(agentSummaryRes.value ?? null);
-
-      let currentCleaner = null;
-      if (cleanerRes.status === "fulfilled" && cleanerRes.value) {
-        currentCleaner = cleanerRes.value;
-        setCleanerMetrics(currentCleaner);
-      }
-
+      if (cleanerRes.status === "fulfilled" && cleanerRes.value)
+        setCleanerMetrics(cleanerRes.value);
       if (riskRes.status === "fulfilled") setRiskMetrics(riskRes.value ?? null);
       if (forecastRes.status === "fulfilled")
         setForecastMetrics(forecastRes.value ?? null);
@@ -137,7 +119,6 @@ export default function useDashboardData({
       if (evaluationsRes.status === "fulfilled")
         setEvaluations(evaluationsRes.value ?? null);
 
-      // 4. Build Structured Dynamic Metrics Object
       const primaryDatasetId = currentDatasets[0]?.id || "ds_001";
       const mObj = {
         datasets: {},
@@ -161,12 +142,8 @@ export default function useDashboardData({
           issues: rawMetrics.issues_breakdown || rawMetrics.issues || {},
         };
 
-        // Extract Trajectories dynamically if supplied by backend
-        if (rawMetrics.trajectories) {
+        if (rawMetrics.trajectories)
           mObj.trajectories = rawMetrics.trajectories;
-        }
-
-        // Extract Dimensional Breakdown
         if (rawMetrics.dimensional_breakdown) {
           mObj.dimensional_breakdown = rawMetrics.dimensional_breakdown;
           mObj.completeness = rawMetrics.dimensional_breakdown.completeness;
@@ -176,7 +153,6 @@ export default function useDashboardData({
           mObj.uniqueness = rawMetrics.dimensional_breakdown.uniqueness;
         }
 
-        // Merge all top-level raw metric attributes
         Object.assign(mObj, rawMetrics);
       }
 
@@ -199,7 +175,6 @@ export default function useDashboardData({
         mObj.risk[dsId] = rk;
       }
 
-      // If cleaner metrics were returned embedded in the metrics payload, synchronize them
       if (metricsRes.status === "fulfilled" && metricsRes.value?.cleaner) {
         setCleanerMetrics(metricsRes.value.cleaner);
       }

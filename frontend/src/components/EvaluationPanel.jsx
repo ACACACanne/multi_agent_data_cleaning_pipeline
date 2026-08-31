@@ -1,3 +1,4 @@
+//frontend/src/components/EvaluationPanel.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
 import { fetchEvaluations } from "../services/api";

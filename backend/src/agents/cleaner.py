@@ -1,119 +1,94 @@
 """
-Cleaner Agent (Dynamic Quality Finalization & Persistence)
-Evaluates finalized dataset records against adaptive domain contracts,
-persists verified scores to CleanerMetrics, and synthesizes actionable recommendations.
+DataRA Pro - Cleaner Pipeline Route Handler
+Executes autonomous multi-agent cleaning and persists cleaned dataset records.
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, Optional
 import logging
-import json
-from sqlmodel import Session, select
-from pydantic import ValidationError
+from fastapi import APIRouter, Body, HTTPException, status
+from src.routes.datasets import (
+    DATASETS_STORE,
+    DATASET_SAMPLES_STORE,
+    save_persisted_storage
+)
+from src.agents.graph import AutonomousRemediationGraph
 
-from src.models.record import Record
-from src.models.cleaner import CleanerMetrics
-from src.agents.validator import AdaptiveClinicalContract
+router = APIRouter(prefix="/api/cleaner", tags=["Cleaner"])
+logger = logging.getLogger("datara.routes.cleaner")
 
-logger = logging.getLogger(__name__)
+graph_engine = AutonomousRemediationGraph()
+LATEST_CLEANER_RESULTS: Dict[str, Any] = {}
 
 
-def run_cleaner(dataset_id: Any, session: Session) -> Dict[str, Any]:
-    """
-    Cleaner Agent: Evaluates finalized dataset records against adaptive domain contracts,
-    computes verified quality scores, and persists verified metrics to the database.
-    """
-    target_id_str = str(dataset_id).strip()
+@router.post("/run", response_model=Dict[str, Any], status_code=status.HTTP_200_OK)
+@router.post("", response_model=Dict[str, Any], status_code=status.HTTP_200_OK, include_in_schema=False)
+async def run_cleaner_pipeline(payload: Dict[str, Any] = Body(...)):
+    """Executes the Auditor -> Remediator -> Validator loop on target datasets."""
+    target_id = str(payload.get("dataset_id") or payload.get("datasetId") or "all")
 
-    if target_id_str.isdigit():
-        records = session.exec(
-            select(Record).where(Record.dataset_id == int(target_id_str))
-        ).all()
+    # Resolve target datasets
+    if target_id == "all":
+        datasets_to_process = [d["id"] for d in DATASETS_STORE if not d.get("hidden")]
+    elif target_id == "synthetic_all":
+        datasets_to_process = [d["id"] for d in DATASETS_STORE if d.get("synthetic_injected") or "ds_syn_" in str(d["id"])]
     else:
-        records = session.exec(
-            select(Record).where(str(Record.dataset_id) == target_id_str)
-        ).all()
+        datasets_to_process = [target_id]
 
-    total_records = len(records)
-    if total_records == 0:
-        return {
-            "agent": "cleaner",
-            "cleaned_quality": 1.0,
-            "passed_count": 0,
-            "total_records": 0,
-            "issues": {"remaining": 0},
-            "suggestions": ["Dataset is empty or already finalized."],
-            "reasoning": f"Cleaner evaluated 0 records for dataset '{dataset_id}'."
-        }
+    if not datasets_to_process:
+        raise HTTPException(status_code=404, detail="No matching datasets found for remediation.")
 
-    passed_count = 0
-    unresolved_issues: List[Dict[str, Any]] = []
-    issue_type_counts: Dict[str, int] = {}
+    aggregated_results = []
+    last_result = None
 
-    for r in records:
-        data_dict: Dict[str, Any] = dict(r.data) if isinstance(r.data, dict) else {}
-        try:
-            AdaptiveClinicalContract(**data_dict)
-            passed_count += 1
-        except ValidationError as val_err:
-            errors = [f"{e['loc'][0] if e['loc'] else 'contract'}: {e['msg']}" for e in val_err.errors()]
-            unresolved_issues.append({"record_id": r.id, "errors": errors})
-            for err_msg in errors:
-                key = err_msg.split(":")[0].strip()
-                issue_type_counts[key] = issue_type_counts.get(key, 0) + 1
-        except Exception as generic_err:
-            unresolved_issues.append({"record_id": r.id, "errors": [str(generic_err)]})
-            issue_type_counts["general_fault"] = issue_type_counts.get("general_fault", 0) + 1
+    for ds_id in datasets_to_process:
+        records = DATASET_SAMPLES_STORE.get(ds_id, [])
+        if not records:
+            continue
 
-    cleaned_quality = round(float(passed_count / total_records), 4)
-    remaining_count = len(unresolved_issues)
+        result = graph_engine.run(records, dataset_id=ds_id, max_iterations=5)
+        last_result = result
+        aggregated_results.append(result)
 
-    # Dynamic suggestions synthesis
-    suggestions: List[Dict[str, Any]] = []
-    if remaining_count == 0:
-        suggestions.append({
-            "id": f"sug_{dataset_id}_1",
-            "column": "All Columns",
-            "field": "Schema & Invariants",
-            "action": "Contract Certification",
-            "recommendation": "All records comply with domain contracts (100% certified). Ready for ML ingestion.",
-            "confidence": 1.0,
-            "impact": "Certified Valid"
-        })
-    else:
-        for field, count in issue_type_counts.items():
-            suggestions.append({
-                "id": f"sug_{dataset_id}_{field}",
-                "column": field,
-                "field": "Data Quality Exception",
-                "action": "Remediation Follow-up",
-                "recommendation": f"Review {count} record(s) flagged with '{field}' invariant violations.",
-                "confidence": 0.95,
-                "impact": f"+{(count / total_records * 100):.1f}% Accuracy"
-            })
+        # 1. Update stateful memory stores
+        DATASET_SAMPLES_STORE[ds_id] = result["cleaned_records"]
 
-    # Persist CleanerMetrics into Database
-    try:
-        ds_int = int(target_id_str) if target_id_str.isdigit() else 1
-        metrics = session.get(CleanerMetrics, ds_int)
-        if not metrics:
-            metrics = CleanerMetrics(dataset_id=ds_int)
-        metrics.cleaned_quality = cleaned_quality
-        metrics.issues = {
-            "remaining": remaining_count,
-            "passed": passed_count,
-            "total": total_records
-        }
-        session.add(metrics)
-        session.commit()
-    except Exception as exc:
-        logger.debug("CleanerMetrics commit notice: %s", exc)
+        # 2. Update Dataset metadata in DATASETS_STORE
+        for ds in DATASETS_STORE:
+            if str(ds.get("id")) == str(ds_id):
+                ds["status"] = "OPTIMAL" if result["cleaned_quality"] >= 0.95 else "NEEDS_REMEDIATION"
+                ds["post_clean_score"] = result["cleaned_quality"]
+                ds["anomalies_count"] = result["issues_after"]
+                ds["anomalies"] = result["issues_after"]
+                break
+
+    # Persist changes to disk storage
+    save_persisted_storage()
+
+    primary_id = datasets_to_process[0]
+    LATEST_CLEANER_RESULTS[primary_id] = last_result or {}
 
     return {
-        "agent": "cleaner",
-        "cleaned_quality": cleaned_quality,
-        "passed_records": passed_count,
-        "total_records": total_records,
-        "issues": {"remaining": remaining_count},
-        "suggestions": suggestions,
-        "reasoning": f"Cleaner verified {passed_count}/{total_records} records ({cleaned_quality * 100:.1f}% certified quality score) with {remaining_count} remaining edge exceptions."
+        "status": "SUCCESS",
+        "dataset_id": target_id,
+        "results": {
+            "cleaner": last_result,
+            "batch_processed": len(aggregated_results),
+            "summary": last_result
+        },
+        "cleaner": last_result,
+        "message": f"Successfully completed multi-agent remediation loop on {len(aggregated_results)} dataset(s)."
     }
+
+
+@router.get("/metrics", response_model=Dict[str, Any])
+async def get_cleaner_metrics(dataset_id: Optional[str] = "all"):
+    """Returns the latest cleaning metrics computed dynamically."""
+    target = dataset_id if dataset_id and dataset_id != "all" else "ds_001"
+    res = LATEST_CLEANER_RESULTS.get(target) or next(iter(LATEST_CLEANER_RESULTS.values()), None)
+
+    if not res:
+        # Fallback to computing on current records
+        records = DATASET_SAMPLES_STORE.get(target, [])
+        res = graph_engine.run(records, dataset_id=target, max_iterations=1)
+
+    return res

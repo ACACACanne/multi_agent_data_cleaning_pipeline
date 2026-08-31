@@ -1,3 +1,4 @@
+//frontend/src/components/BarChart.jsx
 import React, { useMemo } from "react";
 import PropTypes from "prop-types";
 import { Bar } from "react-chartjs-2";
