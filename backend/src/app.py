@@ -5,6 +5,16 @@ Registers middleware, database startup lifecycle, error handlers, and route cont
 Dynamically handles FHIR conversions and clinical quality audit reporting from live database state.
 """
 
+import sys
+from pathlib import Path
+
+# -------------------------------------------------------------
+# Sys.Path Bootstrap (Resolves 'src' package from any launch dir)
+# -------------------------------------------------------------
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
+
 import logging
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List

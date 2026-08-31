@@ -1,7 +1,7 @@
 # backend/src/models/__init__.py
 """
 Models Export Registry
-Imports and registers all SQLAlchemy models with Base.metadata.
+Imports and registers all SQLAlchemy ORM models and Pydantic validation schemas.
 """
 
 from src.db.engine import Base
@@ -14,16 +14,15 @@ try:
     from src.models.dataset import Dataset
 except ImportError:
     from src.models import dataset as _dataset
+    Dataset = getattr(_dataset, "Datasets", getattr(_dataset, "Dataset", None))
 
-    Dataset = getattr(_dataset, "Datasets", None)
-
-# 3. Record Models
+# 3. Record Models (SQLAlchemy ORM + Pydantic Invariant Schema)
 try:
-    from src.models.record import Record
+    from src.models.record import Record, ClinicalRecordModel
 except ImportError:
     from src.models import record as _record
-
-    Record = getattr(_record, "Records", None)
+    Record = getattr(_record, "Records", getattr(_record, "Record", None))
+    ClinicalRecordModel = getattr(_record, "ClinicalRecordModel", None)
 
 # 4. Evaluation Models
 try:
@@ -31,8 +30,7 @@ try:
 except ImportError:
     try:
         from src.models import evaluation as _evaluation
-
-        Evaluation = getattr(_evaluation, "Evaluations", None)
+        Evaluation = getattr(_evaluation, "Evaluations", getattr(_evaluation, "Evaluation", None))
     except ImportError:
         Evaluation = None
 
@@ -42,15 +40,13 @@ try:
 except ImportError:
     try:
         from src.models import experiment as _experiment
-
-        Experiment = getattr(_experiment, "Experiments", None)
+        Experiment = getattr(_experiment, "Experiments", getattr(_experiment, "Experiment", None))
     except ImportError:
         Experiment = None
 
 # 6. Cleaner Models
 try:
     from importlib import import_module
-
     _cleaner = import_module("src.models.cleaner")
     Cleaner = getattr(_cleaner, "Cleaner", None)
     if Cleaner is None:
@@ -61,7 +57,6 @@ except ImportError:
 # 7. Remediation Models
 try:
     from importlib import import_module
-
     _remediation = import_module("src.models.remediation")
     Remediation = getattr(_remediation, "Remediation", None)
     if Remediation is None:
@@ -72,18 +67,16 @@ except ImportError:
 # 8. Schema Drift Models
 try:
     from importlib import import_module
-
     _schema = import_module("src.models.schema")
     SchemaDrift = getattr(_schema, "SchemaDrift", None)
     if SchemaDrift is None:
-        SchemaDrift = getattr(_schema, "Schema", None)
+        SchemaDrift = getattr(_schema, "SchemaDriftReport", getattr(_schema, "Schema", None))
 except ImportError:
     SchemaDrift = None
 
 # 9. Synthetic Error Models
 try:
     from importlib import import_module
-
     _synthetic = import_module("src.models.synthetic")
     SyntheticError = getattr(_synthetic, "SyntheticError", None)
     if SyntheticError is None:
@@ -91,18 +84,27 @@ try:
 except ImportError:
     SyntheticError = None
 
-# 10. Agent Models
+# 10. Agent Models (SQLAlchemy ORM + Pydantic Agent Reflection Loop States)
 try:
-    from importlib import import_module
-
-    _agent = import_module("src.models.agent")
-    Agent = getattr(_agent, "Agent", None)
-    if Agent is None:
-        Agent = getattr(_agent, "AgentLog", None)
+    from src.models.agent import (
+        AgentRun,
+        AuditFinding,
+        RemediationAction,
+        ValidationReport,
+        GraphAgentState,
+    )
+    Agent = AgentRun  # Backward compatibility alias
 except ImportError:
-    Agent = None
+    from src.models import agent as _agent
+    AgentRun = getattr(_agent, "AgentRun", getattr(_agent, "AgentLog", getattr(_agent, "Agent", None)))
+    Agent = AgentRun
+    AuditFinding = getattr(_agent, "AuditFinding", None)
+    RemediationAction = getattr(_agent, "RemediationAction", None)
+    ValidationReport = getattr(_agent, "ValidationReport", None)
+    GraphAgentState = getattr(_agent, "GraphAgentState", None)
 
 __all__ = [
+    # Database ORM
     "Base",
     "Metric",
     "Metrics",
@@ -115,4 +117,11 @@ __all__ = [
     "SchemaDrift",
     "SyntheticError",
     "Agent",
+    "AgentRun",
+    # Agentic Reflection & Invariant Schemas
+    "ClinicalRecordModel",
+    "AuditFinding",
+    "RemediationAction",
+    "ValidationReport",
+    "GraphAgentState",
 ]

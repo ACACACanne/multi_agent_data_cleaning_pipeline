@@ -1,17 +1,23 @@
 # backend/src/models/dataset.py
-from typing import TYPE_CHECKING, Optional, Dict, Any, List
-from sqlmodel import SQLModel, Field, Relationship
-from sqlalchemy import Column, JSON, Text, Integer
+"""
+DataRA Pro - Dataset SQLModel & Metadata Schema
+Defines dataset persistence entity and relationships to metrics, evaluations, and experiments.
+"""
+
+from __future__ import annotations
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional
+from sqlalchemy import Column, Integer, JSON, Text
+from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
-    from src.models.cleaner_metrics import CleanerMetrics
+    from src.models.cleaner import CleanerMetrics
     from src.models.evaluation import Evaluation
     from src.models.experiment import Experiment
     from src.models.metrics import Metrics
 
 
 class Dataset(SQLModel, table=True):
-    __tablename__ = "datasets"
+    __tablename__: ClassVar[str] = "datasets"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: Optional[str] = Field(default=None, sa_column=Column("name", Text, nullable=True))
@@ -40,5 +46,5 @@ class Dataset(SQLModel, table=True):
         return session.query(Record).filter(Record.dataset_id == self.id).limit(limit).all()
 
 
-
-
+# Compatibility alias
+Datasets = Dataset

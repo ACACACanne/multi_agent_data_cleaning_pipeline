@@ -1,3 +1,4 @@
+// frontend/src/components/cleaner/TrajectoryGraph.jsx
 import React, { useEffect, useRef } from "react";
 import PropTypes from "prop-types";
 import zoomPlugin from "chartjs-plugin-zoom";
@@ -33,8 +34,9 @@ if (!ChartJS._registered) {
 /**
  * TrajectoryGraph
  *
- * Visualizes quality trajectory curves over time for Baseline, Autonomous Agent, and Manual Remediation.
- * Defensively parses both timestamp-based records and step/iteration scores.
+ * Visualizes multi-iteration quality trajectory curves over time for Baseline,
+ * Autonomous Agent, and Manual Remediation.
+ * Defensively parses raw numbers, numeric strings, and timestamp/step object records.
  */
 export default function TrajectoryGraph({
   datasetId = "ds_001",
@@ -83,21 +85,33 @@ export default function TrajectoryGraph({
 
       const now = Date.now();
       return list.map((e, idx) => {
-        let q =
-          e?.quality_score ??
-          e?.quality ??
-          e?.score ??
-          (typeof e === "number" ? e : 80);
+        let rawQ = 80;
+
+        if (typeof e === "number") {
+          rawQ = e;
+        } else if (typeof e === "string") {
+          const parsed = parseFloat(e);
+          rawQ = Number.isFinite(parsed) ? parsed : 80;
+        } else if (typeof e === "object" && e !== null) {
+          rawQ =
+            e.quality_score ?? e.quality ?? e.score ?? e.value ?? e.y ?? 80;
+          rawQ =
+            typeof rawQ === "number" ? rawQ : parseFloat(String(rawQ)) || 80;
+        }
 
         // Normalize decimal fractions (0.85 -> 85.0)
-        if (q <= 1.0 && q > 0) q = q * 100;
+        if (rawQ <= 1.0 && rawQ > 0) {
+          rawQ = rawQ * 100;
+        }
 
         let dateVal = null;
-        if (e?.timestamp) {
+        if (typeof e === "object" && e !== null && e.timestamp) {
           const d = new Date(
             typeof e.timestamp === "number" ? e.timestamp : String(e.timestamp),
           );
-          if (!Number.isNaN(d.getTime())) dateVal = d;
+          if (!Number.isNaN(d.getTime())) {
+            dateVal = d;
+          }
         }
 
         // Sequential daily points fallback for iteration steps
@@ -109,7 +123,7 @@ export default function TrajectoryGraph({
 
         return {
           x: dateVal,
-          y: Number.isFinite(q) ? Number(q.toFixed(1)) : 80,
+          y: Number.isFinite(rawQ) ? Number(rawQ.toFixed(1)) : 80,
         };
       });
     };
@@ -283,7 +297,7 @@ export default function TrajectoryGraph({
         <button
           type="button"
           onClick={() => chartRef.current?.resetZoom?.()}
-          className="px-3 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:bg-brand-accent/10 transition"
+          className="px-3 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:bg-brand-accent/10 transition cursor-pointer"
         >
           Reset Zoom
         </button>
@@ -296,44 +310,24 @@ export default function TrajectoryGraph({
   );
 }
 
+const TrajectoryItemPropType = PropTypes.oneOfType([
+  PropTypes.number,
+  PropTypes.string,
+  PropTypes.shape({
+    timestamp: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    quality_score: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    quality: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    score: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    value: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    step: PropTypes.number,
+  }),
+]);
+
 TrajectoryGraph.propTypes = {
   datasetId: PropTypes.string,
   trajectories: PropTypes.shape({
-    baseline: PropTypes.arrayOf(
-      PropTypes.shape({
-        timestamp: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-        quality_score: PropTypes.oneOfType([
-          PropTypes.number,
-          PropTypes.string,
-        ]),
-        quality: PropTypes.number,
-        score: PropTypes.number,
-        step: PropTypes.number,
-      }),
-    ),
-    agent: PropTypes.arrayOf(
-      PropTypes.shape({
-        timestamp: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-        quality_score: PropTypes.oneOfType([
-          PropTypes.number,
-          PropTypes.string,
-        ]),
-        quality: PropTypes.number,
-        score: PropTypes.number,
-        step: PropTypes.number,
-      }),
-    ),
-    manual: PropTypes.arrayOf(
-      PropTypes.shape({
-        timestamp: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
-        quality_score: PropTypes.oneOfType([
-          PropTypes.number,
-          PropTypes.string,
-        ]),
-        quality: PropTypes.number,
-        score: PropTypes.number,
-        step: PropTypes.number,
-      }),
-    ),
+    baseline: PropTypes.arrayOf(TrajectoryItemPropType),
+    agent: PropTypes.arrayOf(TrajectoryItemPropType),
+    manual: PropTypes.arrayOf(TrajectoryItemPropType),
   }),
 };

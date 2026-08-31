@@ -1,40 +1,13 @@
+//frontend/src/components/cleaner/ClenerAgentCard.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
-
-// Default clinical partitions if API list is still initializing
-const DEFAULT_DATASETS = [
-  {
-    id: "ds_syn_da0c8a",
-    name: "diabetic_data.csv [Synthetic Anomaly Injected]",
-    synthetic_injected: true,
-  },
-  {
-    id: "ds_syn_001",
-    name: "breast_cancer_diagnostic.csv [Synthetic Noise]",
-    synthetic_injected: true,
-  },
-  {
-    id: "ds_001",
-    name: "breast_cancer_diagnostic.csv (Baseline)",
-    synthetic_injected: false,
-  },
-  {
-    id: "ds_002",
-    name: "diabetic_data.csv (Baseline)",
-    synthetic_injected: false,
-  },
-  {
-    id: "ds_003",
-    name: "heart.csv (Baseline)",
-    synthetic_injected: false,
-  },
-];
 
 /**
  * CleanerAgentCard
  *
  * Displays cleaner agent metrics, controls, and an interactive dataset selector
  * with dedicated batch targets for All Datasets and Synthetic-Only partitions.
+ * Fully dynamic: computes metrics, deltas, and improvements directly from live telemetry.
  */
 export default function CleanerAgentCard({
   datasets = [],
@@ -56,7 +29,7 @@ export default function CleanerAgentCard({
     }
   }, [datasetId]);
 
-  // 2. Normalize and Deduplicate Datasets List with Guaranteed Synthetic Entries
+  // 2. Normalize and Deduplicate Datasets List without hardcoded mock partitions
   const normalizedDatasets = useMemo(() => {
     let list = [];
     if (Array.isArray(datasets) && datasets.length > 0) {
@@ -67,31 +40,6 @@ export default function CleanerAgentCard({
       datasets.datasets.length > 0
     ) {
       list = [...datasets.datasets];
-    } else {
-      list = [...DEFAULT_DATASETS];
-    }
-
-    // Ensure known active synthetic partitions are present in the list
-    const hasSynthetic = list.some(
-      (d) =>
-        String(d.id).startsWith("ds_syn_") ||
-        d.synthetic_injected ||
-        d.name?.includes("[Synthetic"),
-    );
-
-    if (!hasSynthetic) {
-      list.unshift(
-        {
-          id: "ds_syn_da0c8a",
-          name: "diabetic_data.csv [Synthetic Anomaly Injected]",
-          synthetic_injected: true,
-        },
-        {
-          id: "ds_syn_001",
-          name: "breast_cancer_diagnostic.csv [Synthetic Noise]",
-          synthetic_injected: true,
-        },
-      );
     }
 
     // Deduplicate by ID
@@ -104,13 +52,14 @@ export default function CleanerAgentCard({
     });
   }, [datasets]);
 
-  // Partition synthetic vs baseline datasets
+  // Partition synthetic vs baseline datasets dynamically based on metadata/naming
   const syntheticList = useMemo(() => {
     return normalizedDatasets.filter(
       (d) =>
         String(d.id).startsWith("ds_syn_") ||
-        d.synthetic_injected ||
+        Boolean(d.synthetic_injected) ||
         d.name?.includes("[Synthetic") ||
+        d.name?.includes("[injected_") ||
         d.name?.includes("Synthetic"),
     );
   }, [normalizedDatasets]);
@@ -119,8 +68,9 @@ export default function CleanerAgentCard({
     return normalizedDatasets.filter(
       (d) =>
         !String(d.id).startsWith("ds_syn_") &&
-        !d.synthetic_injected &&
+        !Boolean(d.synthetic_injected) &&
         !d.name?.includes("[Synthetic") &&
+        !d.name?.includes("[injected_") &&
         !d.name?.includes("Synthetic"),
     );
   }, [normalizedDatasets]);
@@ -142,7 +92,7 @@ export default function CleanerAgentCard({
     }
   };
 
-  // Safe Metric Parser
+  // Safe Numeric Parser
   const safe = (v) => {
     if (v === null || v === undefined) return null;
     const parsed = parseFloat(String(v).replace(/[^0-9.-]/g, ""));
@@ -157,23 +107,24 @@ export default function CleanerAgentCard({
     selectedId === "synthetic_all" ||
     String(selectedId).startsWith("ds_syn_") ||
     Boolean(activeDatasetObj?.synthetic_injected) ||
-    Boolean(activeDatasetObj?.name?.includes("[Synthetic"));
+    Boolean(activeDatasetObj?.name?.includes("[Synthetic")) ||
+    Boolean(activeDatasetObj?.name?.includes("[injected_"));
 
-  // 3. Dynamic Metrics Calculations
-  const baseline =
-    safe(
-      metrics?.baseline_quality ??
-        metrics?.baselineQuality ??
-        metrics?.cleaner?.baseline_quality,
-    ) ?? (isSynthetic ? 0.605 : 0.742);
+  // 3. Dynamic Metrics Extraction (No Hardcoded Fallbacks)
+  const baseline = safe(
+    metrics?.baseline_quality ??
+      metrics?.baselineQuality ??
+      metrics?.cleaner?.baseline_quality ??
+      metrics?.datasets?.[selectedId]?.baseline_quality,
+  );
 
-  const cleaned =
-    safe(
-      metrics?.cleaned_quality ??
-        metrics?.cleanedQuality ??
-        metrics?.global_quality_score ??
-        metrics?.cleaner?.cleaned_quality,
-    ) ?? 0.994;
+  const cleaned = safe(
+    metrics?.cleaned_quality ??
+      metrics?.cleanedQuality ??
+      metrics?.global_quality_score ??
+      metrics?.cleaner?.cleaned_quality ??
+      metrics?.datasets?.[selectedId]?.quality_score,
+  );
 
   const rawActions =
     metrics?.actions ??
@@ -186,13 +137,7 @@ export default function CleanerAgentCard({
     activeDatasetObj?.anomalies_count ??
     activeDatasetObj?.anomalies;
 
-  const actions = Number.isFinite(safe(rawActions))
-    ? safe(rawActions)
-    : selectedId === "all" || selectedId === "synthetic_all" || !selectedId
-      ? 310
-      : isSynthetic
-        ? 44
-        : 14;
+  const actions = Number.isFinite(safe(rawActions)) ? safe(rawActions) : 0;
 
   const rawSuccessRate =
     metrics?.success_rate ??
@@ -201,26 +146,27 @@ export default function CleanerAgentCard({
     metrics?.cleaner_accuracy ??
     metrics?.cleaner?.success_rate;
 
-  const successRate = safe(rawSuccessRate) ?? 0.996;
+  const successRate = safe(rawSuccessRate);
 
-  const recordAccuracy =
-    safe(
-      metrics?.record_accuracy ??
-        metrics?.recordAccuracy ??
-        metrics?.accuracy ??
-        metrics?.cleaner?.record_accuracy,
-    ) ?? 0.994;
+  const recordAccuracy = safe(
+    metrics?.record_accuracy ??
+      metrics?.recordAccuracy ??
+      metrics?.accuracy ??
+      metrics?.cleaner?.record_accuracy,
+  );
 
+  // Dynamic delta calculation
   const improvement =
     baseline !== null && cleaned !== null
       ? cleaned <= 1.0 && baseline <= 1.0
         ? cleaned - baseline
         : (cleaned - baseline) / 100
-      : 0.252;
+      : null;
 
   const fmt = (n, opts = { pct: false }) => {
-    if (n === null || n === undefined || !Number.isFinite(Number(n)))
+    if (n === null || n === undefined || !Number.isFinite(Number(n))) {
       return "—";
+    }
     const num = Number(n);
     if (opts.pct) {
       return num <= 1.0 ? `${(num * 100).toFixed(1)}%` : `${num.toFixed(1)}%`;
@@ -232,10 +178,12 @@ export default function CleanerAgentCard({
     <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div>
-          <h3 className="text-lg font-bold text-brand-accent">Cleaner Agent</h3>
+          <h3 className="text-lg font-bold text-brand-accent">
+            Cleaner Agent Loop
+          </h3>
           <p className="text-xs text-gray-400">
-            Automated remediation using validation, outlier trimming, and
-            imputations
+            Automated remediation using iterative validation, outlier bounds,
+            and contract enforcement
           </p>
         </div>
         {isSynthetic && (
@@ -266,9 +214,11 @@ export default function CleanerAgentCard({
             <option value="all">
               ⚡ All Datasets (Full Batch Remediation)
             </option>
-            <option value="synthetic_all">
-              🧪 All Synthetic / Injected Datasets Only (Batch Synthetic)
-            </option>
+            {syntheticList.length > 0 && (
+              <option value="synthetic_all">
+                🧪 All Synthetic / Injected Datasets Only (Batch Synthetic)
+              </option>
+            )}
 
             {/* Individual Synthetic Target Partitions */}
             {syntheticList.length > 0 && (
@@ -282,13 +232,15 @@ export default function CleanerAgentCard({
             )}
 
             {/* Individual Baseline Clinical Partitions */}
-            <optgroup label="Baseline Clinical Datasets">
-              {baselineList.map((d) => (
-                <option key={String(d.id)} value={String(d.id)}>
-                  {d.name || d.id} ({d.id})
-                </option>
-              ))}
-            </optgroup>
+            {baselineList.length > 0 && (
+              <optgroup label="Baseline Clinical Datasets">
+                {baselineList.map((d) => (
+                  <option key={String(d.id)} value={String(d.id)}>
+                    {d.name || d.id} ({d.id})
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
       </div>
@@ -351,7 +303,9 @@ export default function CleanerAgentCard({
         <div className="p-2.5 rounded-lg bg-brand-dark/50 border border-brand-accent/10">
           <div className="text-gray-400">Improvement</div>
           <div className="text-base font-bold text-indigo-300 mt-0.5 font-mono">
-            {improvement !== null ? `+${fmt(improvement)}` : "+25.2%"}
+            {improvement !== null
+              ? `${improvement >= 0 ? "+" : ""}${fmt(improvement)}`
+              : "—"}
           </div>
         </div>
 
