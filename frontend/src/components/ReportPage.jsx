@@ -3,6 +3,88 @@ import React, { useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import useDashboardData from "../hooks/useDashboardData";
 
+// Standalone RemediRa Triad Shield Icon (Fixed Dimension)
+export const RemediRaShieldIcon = () => (
+  <svg
+    width="34"
+    height="36"
+    viewBox="0 0 100 105"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+    style={{
+      minWidth: "34px",
+      width: "34px",
+      height: "36px",
+      display: "block",
+    }}
+  >
+    <defs>
+      <linearGradient id="repShieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stopColor="#60a5fa" />
+        <stop offset="100%" stopColor="#34d399" />
+      </linearGradient>
+      <linearGradient id="repShieldBg" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stopColor="#1e293b" />
+        <stop offset="100%" stopColor="#0b1220" />
+      </linearGradient>
+    </defs>
+
+    {/* Outer Shield Boundary */}
+    <path
+      d="M50 5 L90 20 V58 C90 82 50 96 50 96 C50 96 10 82 10 58 V20 Z"
+      fill="url(#repShieldBg)"
+      stroke="url(#repShieldGrad)"
+      strokeWidth="3.5"
+    />
+
+    {/* Multi-Agent Triad Nodes */}
+    <circle cx="28" cy="34" r="6" fill="#60a5fa" />
+    <circle cx="72" cy="34" r="6" fill="#38bdf8" />
+    <circle cx="50" cy="78" r="6.5" fill="#34d399" />
+
+    {/* Network Invariant Bridges */}
+    <line
+      x1="28"
+      y1="34"
+      x2="72"
+      y2="34"
+      stroke="#60a5fa"
+      strokeWidth="2"
+      strokeDasharray="3,3"
+      opacity="0.8"
+    />
+    <line
+      x1="28"
+      y1="34"
+      x2="50"
+      y2="78"
+      stroke="#60a5fa"
+      strokeWidth="2"
+      strokeDasharray="3,3"
+      opacity="0.8"
+    />
+    <line
+      x1="72"
+      y1="34"
+      x2="50"
+      y2="78"
+      stroke="#34d399"
+      strokeWidth="2"
+      strokeDasharray="3,3"
+      opacity="0.8"
+    />
+
+    {/* Central Verification Pulse Vector */}
+    <path
+      d="M30 52 L42 52 L47 41 L53 63 L58 48 L62 52 L70 52"
+      stroke="url(#repShieldGrad)"
+      strokeWidth="3.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
 function safeText(val, fallback = "") {
   if (val === null || val === undefined) return fallback;
   if (
@@ -106,7 +188,7 @@ export default function ReportPage() {
   );
   const rejectionRate = (rejectionRateRaw * 100).toFixed(2);
 
-  // 3. UK NHS LABOUR & ECONOMIC CALIBRATION (Band 8a Informatician Standard)
+  // 3. ECONOMIC CALIBRATION (NHS AfC Band 8a Standard)
   const agentSecondsPerDataset =
     safeFloat(
       cleanerMetrics?.latency_seconds ??
@@ -164,7 +246,7 @@ export default function ReportPage() {
         ).toFixed(2)
       : "99.98";
 
-  // 4. HARDWARE TELEMETRY (PSUTIL PROFILING HOOKS)
+  // 4. HARDWARE TELEMETRY
   const cpuAvg = safeFloat(
     cleanerMetrics?.resources?.cpu_utilization_pct ??
       metrics?.resources?.cpu_utilization_pct ??
@@ -204,7 +286,7 @@ export default function ReportPage() {
     31.8,
   );
 
-  // 5. TRAJECTORY CONVERGENCE VECTORS (SVG RENDERING)
+  // 5. TRAJECTORY CONVERGENCE VECTORS
   const rawAgentTraj = useMemo(() => {
     const list =
       cleanerMetrics?.trajectories?.agent ||
@@ -284,7 +366,6 @@ export default function ReportPage() {
   // 6. DIMENSIONAL DATA QUALITY SCORES
   const dimensionalScores = useMemo(() => {
     const parseScore = (field, name, defaultBefore, defaultAfter) => {
-      // 1. Check nested object models
       const bObj =
         metrics?.[field]?.before ??
         metrics?.dimensional_breakdown?.[field]?.before ??
@@ -295,7 +376,6 @@ export default function ReportPage() {
         metrics?.dimensional_breakdown?.[field]?.after ??
         cleanerMetrics?.dimensional_scores?.[field]?.after;
 
-      // 2. Check flat baseline dimensions array
       let arrayBefore = null;
       let arrayAfter = null;
       if (Array.isArray(metrics?.dimensions)) {
@@ -429,7 +509,7 @@ export default function ReportPage() {
                 ← Back to Dashboard
               </Link>
               <span className="text-xs text-gray-300 hidden sm:inline">
-                Full-Screen Clinical Audit & Quality Telemetry View
+                Full-Screen Multi-Agent Audit &amp; Quality Telemetry View
               </span>
             </div>
 
@@ -469,25 +549,40 @@ export default function ReportPage() {
             ref={reportRef}
             className="p-8 sm:p-12 rounded-2xl bg-brand-light border border-brand-accent/20 shadow-2xl space-y-10 print:p-0 print:border-none print:shadow-none print:bg-white print:text-black"
           >
-            {/* Header */}
+            {/* Header with New RemediRa Pro Branding */}
             <div className="border-b border-brand-accent/20 pb-6 print:border-gray-300">
               <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="w-7 h-7 rounded bg-brand-accent text-black font-extrabold flex items-center justify-center text-xs print:bg-blue-600 print:text-white">
-                      DR
-                    </span>
-                    <h1 className="text-2xl sm:text-3xl font-extrabold text-white print:text-gray-900 tracking-tight">
-                      DATARA
-                      <span className="text-brand-accent font-mono ml-1 print:text-blue-600">
+                <div className="flex items-center gap-3.5">
+                  <RemediRaShieldIcon />
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h1 className="text-2xl sm:text-3xl font-extrabold text-white print:text-gray-900 tracking-tight leading-none">
+                        Remedi
+                        <span className="text-brand-accent print:text-blue-600">
+                          Ra
+                        </span>
+                      </h1>
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          padding: "2px 5px",
+                          borderRadius: "4px",
+                          fontWeight: "700",
+                          letterSpacing: "0.5px",
+                          backgroundColor: "rgba(96, 165, 250, 0.15)",
+                          color: "#60a5fa",
+                          border: "1px solid rgba(96, 165, 250, 0.3)",
+                        }}
+                        className="print:bg-gray-100 print:text-blue-700"
+                      >
                         PRO
                       </span>
-                    </h1>
+                    </div>
+                    <p className="text-xs sm:text-sm text-gray-400 print:text-gray-600 mt-1 font-medium">
+                      Autonomous Data Quality, Contract Invariants &amp;
+                      Hardware Telemetry Audit Report
+                    </p>
                   </div>
-                  <p className="text-sm text-gray-400 print:text-gray-600 mt-1 font-medium">
-                    Autonomous Multi-Agent Clinical Data Quality, Hardware
-                    Telemetry & Economic Audit Report
-                  </p>
                 </div>
 
                 <div className="text-left sm:text-right text-xs text-gray-400 print:text-gray-600 font-mono space-y-0.5">
@@ -516,7 +611,7 @@ export default function ReportPage() {
             {/* Section 1: Executive KPI Metrics Grid */}
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
-                1. Executive Quality & Operational Throughput
+                1. Executive Quality &amp; Operational Throughput
               </h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                 <div className="p-3.5 rounded-xl bg-brand-dark border border-brand-accent/20 print:bg-gray-50 print:border-gray-300">
@@ -599,7 +694,7 @@ export default function ReportPage() {
             <section className="space-y-3">
               <div className="flex items-center justify-between border-b border-brand-accent/20 pb-2 print:border-gray-300">
                 <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
-                  2. Hardware Resource Utilization & Compute Efficiency
+                  2. Hardware Resource Utilization &amp; Compute Efficiency
                 </h2>
                 <span className="text-[11px] font-mono text-emerald-400 print:text-emerald-700 font-semibold">
                   Process Status: Active Profiling (Live Telemetry)
@@ -661,11 +756,11 @@ export default function ReportPage() {
             <section className="space-y-4">
               <div className="flex items-center justify-between border-b border-brand-accent/20 pb-2 print:border-gray-300">
                 <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
-                  3. Economic & Operational Labour Cost Analysis (Agentic vs.
-                  Manual in GBP £)
+                  3. Economic &amp; Operational Labour Cost Analysis (Agentic
+                  vs. Manual in GBP £)
                 </h2>
                 <span className="text-[11px] font-mono text-emerald-400 print:text-emerald-700 font-semibold">
-                  ROI: &gt; {costSavingsPercentage}% Cost & Time Savings
+                  ROI: &gt; {costSavingsPercentage}% Cost &amp; Time Savings
                 </span>
               </div>
 
@@ -673,7 +768,7 @@ export default function ReportPage() {
                 <div className="p-4 rounded-xl bg-brand-dark border border-brand-accent/30 print:bg-gray-50 print:border-gray-300 space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-brand-accent print:text-blue-700 text-xs uppercase tracking-wider">
-                      Autonomous Multi-Agent Cleaning (DataRA Pro)
+                      Autonomous Multi-Agent Cleaning (RemediRa Pro)
                     </span>
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-500/20 text-emerald-300 print:bg-emerald-100 print:text-emerald-800 border border-emerald-500/30">
                       High Efficiency
@@ -772,14 +867,14 @@ export default function ReportPage() {
             {/* Section 4: Dataset Scope & Health Registry */}
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
-                4. Dataset Health, Scope & Synthetic Noise Registry
+                4. Dataset Health, Scope &amp; Synthetic Noise Registry
               </h2>
               <div className="rounded-xl border border-brand-accent/20 overflow-hidden print:border-gray-300">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-brand-dark border-b border-brand-accent/20 text-gray-300 print:bg-gray-100 print:text-gray-700 font-semibold">
                       <th className="p-3">Dataset ID</th>
-                      <th className="p-3">Dataset Name & Domain</th>
+                      <th className="p-3">Dataset Name &amp; Domain</th>
                       <th className="p-3">Scope</th>
                       <th className="p-3">Records</th>
                       <th className="p-3">Anomalies Detected</th>
@@ -1101,7 +1196,7 @@ export default function ReportPage() {
             {/* Section 7: Live Multi-Agent Reasoning Decision Trail */}
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
-                7. Multi-Agent Reasoning, Remediation & Verification Trail
+                7. Multi-Agent Reasoning, Remediation &amp; Verification Trail
               </h2>
               <div className="space-y-2 text-xs">
                 {liveAgentEvents.length > 0 ? (
@@ -1130,7 +1225,8 @@ export default function ReportPage() {
             <div className="pt-6 border-t border-brand-accent/20 print:border-gray-300 text-xs text-gray-400 print:text-gray-600 flex flex-col sm:flex-row justify-between items-start sm:items-end gap-2">
               <div>
                 <div className="font-semibold text-gray-300 print:text-gray-800">
-                  System Architecture: DataRA Pro Expert Plus (Agentic v2.4)
+                  System Architecture: RemediRa Pro Multi-Agent Engine
+                  (StateGraph v2.4)
                 </div>
                 <div>
                   Deterministic Invariant Contract:{" "}
