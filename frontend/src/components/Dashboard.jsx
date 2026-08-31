@@ -12,7 +12,7 @@ import RecordsTable from "./RecordsTable";
 import DatasetViewer from "./DatasetViewer";
 import EvaluationPanel from "./EvaluationPanel";
 
-// Cleaner Pipeline Components
+// RemediRa Pro Cleaner Pipeline Components
 import CleanerAgentCard from "./cleaner/CleanerAgentCard";
 import BeforeAfterComparisonPanel from "./cleaner/BeforeAfterComparisonPanel";
 import TrajectoryGraph from "./cleaner/TrajectoryGraph";
@@ -139,7 +139,7 @@ export default function Dashboard() {
     }
   }
 
-  // Run All Agents Pipeline
+  // Run All Multi-Agent Pipeline (Auditor -> Remediator -> Validator)
   async function runAllAgents() {
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
@@ -256,7 +256,7 @@ export default function Dashboard() {
             <RecordsTable datasetId={effectiveDatasetId} initialPageSize={5} />
           </div>
 
-          {/* Cleaner Agent Control Card */}
+          {/* RemediRa Pro Cleaner Agent Control Card */}
           <CleanerAgentCard
             datasets={visibleDatasets}
             datasetId={selectedDataset}
@@ -267,7 +267,7 @@ export default function Dashboard() {
             onRunAllAgents={runAllAgents}
           />
 
-          {/* Clinical Anomaly Risk Map */}
+          {/* Data Anomaly & Invariant Risk Map */}
           <DatasetRiskMap
             risk={
               metrics?.risk?.[effectiveDatasetId] || {
@@ -275,7 +275,7 @@ export default function Dashboard() {
                 factors: isSynthetic
                   ? [
                       "Synthetic noise injected",
-                      "Outliers detected in clinical metrics",
+                      "Outliers and invariant boundary shifts detected",
                     ]
                   : ["Baseline verified", "Contract assertions passing"],
               }
@@ -318,14 +318,14 @@ export default function Dashboard() {
                 {
                   step: 1,
                   agent: "Auditor Agent",
-                  action: "Scan schema drift",
+                  action: "Scan schema drift & invariant breaches",
                   finding: `Scanned ${effectiveDatasetId} records and isolated structural anomalies.`,
                   confidence: 0.98,
                 },
                 {
                   step: 2,
                   agent: "Remediator Agent",
-                  action: "Contextual imputation & repair",
+                  action: "Contextual imputation & invariant repair",
                   finding:
                     "Applied deterministic rules, KNN imputation, and numerical outlier bounds.",
                   confidence: 0.99,
@@ -335,7 +335,7 @@ export default function Dashboard() {
                   agent: "Validator Agent",
                   action: "Data contract verification",
                   finding:
-                    "All records conform to active JSON validation contracts.",
+                    "All records conform to active Pydantic v2 validation contracts.",
                   confidence: 1.0,
                 },
               ]
