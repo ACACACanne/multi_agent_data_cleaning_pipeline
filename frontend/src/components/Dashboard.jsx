@@ -217,36 +217,61 @@ export default function Dashboard() {
           {/* COMPACT SLIDING DATASET & SAMPLES HUB */}
           <div className="bg-brand-light rounded-xl border border-brand-accent/20 shadow-md overflow-hidden">
             {/* Sliding Tab Header */}
-            <div className="p-3 border-b border-brand-accent/20 flex items-center justify-between bg-brand-dark/60 gap-2">
+            <div
+              style={{
+                backgroundColor: "#0b1220",
+                borderColor: "rgba(96, 165, 250, 0.2)",
+              }}
+              className="p-3 border-b flex items-center justify-between gap-2"
+            >
               <div className="flex items-center gap-2">
+                {/* Dataset Registry Tab */}
                 <button
                   type="button"
                   onClick={() => setActiveDataTab("registry")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                    activeDataTab === "registry"
-                      ? "bg-brand-accent text-black shadow-sm"
-                      : "text-gray-300 hover:text-white hover:bg-brand-dark/40"
-                  }`}
+                  style={{
+                    backgroundColor:
+                      activeDataTab === "registry" ? "#60a5fa" : "#1e293b",
+                    color: activeDataTab === "registry" ? "#0b1220" : "#cbd5e1",
+                    border:
+                      activeDataTab === "registry"
+                        ? "1px solid #60a5fa"
+                        : "1px solid rgba(96, 165, 250, 0.2)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
                   Dataset Registry ({visibleDatasets.length})
                 </button>
+
+                {/* Quick Record Samples Tab */}
                 <button
                   type="button"
                   onClick={() => setActiveDataTab("preview")}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-                    activeDataTab === "preview"
-                      ? "bg-brand-accent text-black shadow-sm"
-                      : "text-gray-300 hover:text-white hover:bg-brand-dark/40"
-                  }`}
+                  style={{
+                    backgroundColor:
+                      activeDataTab === "preview" ? "#60a5fa" : "#1e293b",
+                    color: activeDataTab === "preview" ? "#0b1220" : "#cbd5e1",
+                    border:
+                      activeDataTab === "preview"
+                        ? "1px solid #60a5fa"
+                        : "1px solid rgba(96, 165, 250, 0.2)",
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
                   Quick Record Samples ({effectiveDatasetId})
                 </button>
               </div>
 
+              {/* Expand Modal Action Button */}
               <button
                 type="button"
                 onClick={() => openViewerModal(effectiveDatasetId)}
-                className="text-[11px] font-semibold text-brand-accent hover:underline shrink-0"
+                style={{
+                  backgroundColor: "#1e293b",
+                  color: "#60a5fa",
+                  border: "1px solid rgba(96, 165, 250, 0.4)",
+                }}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg hover:border-brand-accent hover:text-white transition shrink-0 cursor-pointer"
               >
                 Expand Modal ↗
               </button>
@@ -389,7 +414,12 @@ export default function Dashboard() {
               type="button"
               onClick={() => setShowHistoryDrawer(true)}
               aria-label="View remediation history"
-              className="px-4 py-2 text-xs font-semibold rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition shadow-sm cursor-pointer"
+              style={{
+                backgroundColor: "#0b1220",
+                color: "#e5e7eb",
+                border: "1px solid rgba(96, 165, 250, 0.3)",
+              }}
+              className="px-4 py-2 text-xs font-semibold rounded-lg hover:border-brand-accent transition shadow-sm cursor-pointer"
             >
               View Remediation History
             </button>
@@ -459,7 +489,12 @@ export default function Dashboard() {
                 type="button"
                 onClick={closeViewerModal}
                 aria-label="Close dataset viewer"
-                className="px-3 py-1 text-xs font-semibold rounded bg-brand-dark text-gray-200 border border-brand-accent/30 hover:border-brand-accent hover:text-white transition cursor-pointer"
+                style={{
+                  backgroundColor: "#0b1220",
+                  color: "#e5e7eb",
+                  border: "1px solid rgba(96, 165, 250, 0.3)",
+                }}
+                className="px-3 py-1 text-xs font-semibold rounded hover:border-brand-accent hover:text-white transition cursor-pointer"
               >
                 Close
               </button>

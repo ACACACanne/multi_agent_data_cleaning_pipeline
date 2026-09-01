@@ -1,4 +1,4 @@
-//frontend/src/components/cleaner/ClenerAgentCard.jsx
+// frontend/src/components/cleaner/CleanerAgentCard.jsx
 import React, { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 
@@ -110,7 +110,7 @@ export default function CleanerAgentCard({
     Boolean(activeDatasetObj?.name?.includes("[Synthetic")) ||
     Boolean(activeDatasetObj?.name?.includes("[injected_"));
 
-  // 3. Dynamic Metrics Extraction (No Hardcoded Fallbacks)
+  // 3. Dynamic Metrics Extraction
   const baseline = safe(
     metrics?.baseline_quality ??
       metrics?.baselineQuality ??
@@ -187,7 +187,14 @@ export default function CleanerAgentCard({
           </p>
         </div>
         {isSynthetic && (
-          <span className="self-start sm:self-auto px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+          <span
+            style={{
+              backgroundColor: "rgba(245, 158, 11, 0.15)",
+              color: "#fbbf24",
+              border: "1px solid rgba(245, 158, 11, 0.4)",
+            }}
+            className="self-start sm:self-auto px-2 py-0.5 rounded text-[10px] font-bold uppercase"
+          >
             Synthetic Target
           </span>
         )}
@@ -208,7 +215,12 @@ export default function CleanerAgentCard({
             onChange={handleSelectChange}
             onClick={(e) => e.stopPropagation()}
             disabled={loading}
-            className="w-full bg-brand-dark text-gray-200 text-xs px-3 py-2.5 rounded-lg border border-brand-accent/40 focus:outline-none focus:border-brand-accent cursor-pointer disabled:opacity-50 font-medium"
+            style={{
+              backgroundColor: "#0b1220",
+              color: "#f3f4f6",
+              border: "1px solid rgba(96, 165, 250, 0.4)",
+            }}
+            className="w-full text-xs px-3 py-2.5 rounded-lg focus:outline-none focus:border-brand-accent cursor-pointer disabled:opacity-50 font-medium"
           >
             {/* Batch Scope Options */}
             <option value="all">
@@ -245,28 +257,34 @@ export default function CleanerAgentCard({
         </div>
       </div>
 
-      {/* Execution Buttons */}
+      {/* Execution Buttons with Explicit High-Contrast Dark Styling */}
       <div className="flex flex-wrap items-center gap-3">
+        {/* Run Cleaner Button */}
         <button
           type="button"
-          onClick={onRunCleaner}
           disabled={loading}
-          aria-label="Run cleaner agent"
-          className={`px-4 py-2 text-xs font-semibold rounded-lg transition ${
-            loading
-              ? "bg-gray-600 text-gray-300 cursor-not-allowed animate-pulse"
-              : "bg-brand-accent text-black hover:bg-blue-300 shadow-md shadow-brand-accent/10 cursor-pointer"
-          }`}
+          onClick={onRunCleaner}
+          style={{
+            backgroundColor: "#60a5fa",
+            color: "#0b1220",
+            border: "none",
+          }}
+          className="px-4 py-2 text-xs font-bold rounded-lg hover:bg-blue-300 transition shadow-md shadow-brand-accent/20 cursor-pointer disabled:opacity-50"
         >
           {loading ? "Cleaning & Remediating…" : "Run Cleaner"}
         </button>
 
+        {/* Run All Agents Button */}
         <button
           type="button"
-          onClick={onRunAllAgents}
           disabled={loading}
-          aria-label="Run all agents"
-          className="px-4 py-2 text-xs font-semibold rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition disabled:opacity-50 shadow-md shadow-indigo-600/20 cursor-pointer"
+          onClick={onRunAllAgents}
+          style={{
+            backgroundColor: "#1e293b",
+            color: "#f8fafc",
+            border: "1px solid rgba(96, 165, 250, 0.4)",
+          }}
+          className="px-4 py-2 text-xs font-bold rounded-lg hover:border-brand-accent hover:text-white transition cursor-pointer disabled:opacity-50 shadow-sm"
         >
           {loading ? "Running Pipeline…" : "Run All"}
         </button>

@@ -1,4 +1,4 @@
-#backend/src/routes/datasets.py
+# backend/src/routes/datasets.py
 """
 Datasets Route Controller (100% Real-Time Full Cohort Anomaly Engine)
 Manages clinical baseline datasets and synthetic partitions with 299-record cohort persistence.
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import io
 import json
 import logging
 from pathlib import Path
@@ -16,10 +17,12 @@ import re
 from typing import Any, Dict, List, Optional, Tuple, Union
 import uuid
 
+import pandas as pd
 from fastapi import APIRouter, Body, HTTPException, Path as FPath, Query, status
+from fastapi.responses import Response
 
 router = APIRouter()
-logger = logging.getLogger("datara.routes.datasets")
+logger = logging.getLogger("remedira.routes.datasets")
 
 PERSISTENCE_DIR = Path(__file__).resolve().parent.parent.parent
 PERSISTENCE_FILE = PERSISTENCE_DIR / "datasets_storage.json"
@@ -28,9 +31,13 @@ PERSISTENCE_FILE = PERSISTENCE_DIR / "datasets_storage.json"
 # ===========================================================================
 # 1. DYNAMIC NAME & ERROR RATE FORMATTING HELPERS
 # ===========================================================================
-def parse_error_rate(payload: Dict[str, Any], default: float = 0.15) -> Tuple[float, int]:
+def parse_error_rate(
+    payload: Dict[str, Any], default: float = 0.15
+) -> Tuple[float, int]:
     """Extracts and normalizes injection rates (e.g. 15, '15%', 0.15 -> (0.15, 15))."""
-    config_obj = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+    config_obj = (
+        payload.get("config") if isinstance(payload.get("config"), dict) else {}
+    )
 
     for source in [payload, config_obj]:
         for key in [
@@ -62,7 +69,9 @@ def parse_error_rate(payload: Dict[str, Any], default: float = 0.15) -> Tuple[fl
                 except (ValueError, TypeError):
                     break
 
-    default_fraction = round(default / 100.0, 4) if default > 1.0 else round(default, 4)
+    default_fraction = (
+        round(default / 100.0, 4) if default > 1.0 else round(default, 4)
+    )
     default_display = int(round(default_fraction * 100))
     return default_fraction, default_display
 
@@ -94,9 +103,15 @@ def compute_dynamic_injection_percentage(d: Dict[str, Any]) -> int:
 def format_dynamic_synthetic_name(d: Dict[str, Any]) -> str:
     """Formats dataset name as '[Synthetic X%] Clean_Name.csv'."""
     raw_name = str(d.get("name", "dataset.csv"))
-    clean_name = re.sub(r"\[Synthetic\s*\d*%?\]\s*", "", raw_name, flags=re.IGNORECASE).strip()
-    clean_name = re.sub(r"\s*\[Synthetic.*?\]", "", clean_name, flags=re.IGNORECASE).strip()
-    clean_name = re.sub(r"_\[injected_\d+pct.*?\]", "", clean_name, flags=re.IGNORECASE).strip()
+    clean_name = re.sub(
+        r"\[Synthetic\s*\d*%?\]\s*", "", raw_name, flags=re.IGNORECASE
+    ).strip()
+    clean_name = re.sub(
+        r"\s*\[Synthetic.*?\]", "", clean_name, flags=re.IGNORECASE
+    ).strip()
+    clean_name = re.sub(
+        r"_\[injected_\d+pct.*?\]", "", clean_name, flags=re.IGNORECASE
+    ).strip()
 
     if not clean_name:
         clean_name = f"dataset_{d.get('id', 'ds_001')}.csv"
@@ -133,7 +148,9 @@ def apply_dynamic_metadata(d: Dict[str, Any]) -> Dict[str, Any]:
 
         post_clean = item.get("post_clean_score") or item.get("quality_score")
         if post_clean is None:
-            item["post_clean_score"] = round(max(0.40, 1.0 - (pct_fraction * 1.6)), 3)
+            item["post_clean_score"] = round(
+                max(0.40, 1.0 - (pct_fraction * 1.6)), 3
+            )
             item["quality_score"] = item["post_clean_score"]
     else:
         item["synthetic_injected"] = False
@@ -165,7 +182,9 @@ def inject_anomalies_into_rows(
     if target_count == 0:
         return mutated_rows, 0
 
-    target_indices = random.sample(range(total_rows), min(target_count, total_rows))
+    target_indices = random.sample(
+        range(total_rows), min(target_count, total_rows)
+    )
     anomalies_injected = 0
 
     for idx in target_indices:
@@ -263,7 +282,11 @@ INITIAL_DATASETS: List[Dict[str, Any]] = [
         "error_rate": 0.0,
         "post_clean_score": 0.994,
         "quality_score": 0.994,
-        "flags": {"is_gold_standard": True, "anonymized": True, "auto_clean_enabled": True},
+        "flags": {
+            "is_gold_standard": True,
+            "anonymized": True,
+            "auto_clean_enabled": True,
+        },
     },
     {
         "id": "ds_002",
@@ -280,7 +303,11 @@ INITIAL_DATASETS: List[Dict[str, Any]] = [
         "error_rate": 0.0,
         "post_clean_score": 0.994,
         "quality_score": 0.994,
-        "flags": {"is_gold_standard": False, "anonymized": True, "auto_clean_enabled": True},
+        "flags": {
+            "is_gold_standard": False,
+            "anonymized": True,
+            "auto_clean_enabled": True,
+        },
     },
     {
         "id": "ds_003",
@@ -297,10 +324,15 @@ INITIAL_DATASETS: List[Dict[str, Any]] = [
         "error_rate": 0.0,
         "post_clean_score": 0.994,
         "quality_score": 0.994,
-        "flags": {"is_gold_standard": True, "anonymized": True, "auto_clean_enabled": True},
+        "flags": {
+            "is_gold_standard": True,
+            "anonymized": True,
+            "auto_clean_enabled": True,
+        },
     },
 ]
 
+# Exported module-level stores for metrics.py and cleaner.py
 DATASETS_STORE: List[Dict[str, Any]] = []
 DATASET_SAMPLES_STORE: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -312,7 +344,7 @@ def save_persisted_storage() -> None:
         clean_datasets = [apply_dynamic_metadata(d) for d in DATASETS_STORE]
         data = {
             "datasets": clean_datasets,
-            "samples": DATASET_SAMPLES_STORE,  # Full datasets preserved without slicing
+            "samples": DATASET_SAMPLES_STORE,
         }
         with open(PERSISTENCE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -360,12 +392,18 @@ load_persisted_storage()
 save_persisted_storage()
 
 
-def add_or_update_dataset(dataset_meta: Dict[str, Any], samples: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+def add_or_update_dataset(
+    dataset_meta: Dict[str, Any],
+    samples: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Central registration function that mutates DATASETS_STORE and DATASET_SAMPLES_STORE in place."""
     normalized = apply_dynamic_metadata(dataset_meta)
     ds_id = str(normalized["id"])
 
-    existing_idx = next((i for i, d in enumerate(DATASETS_STORE) if str(d.get("id")) == ds_id), None)
+    existing_idx = next(
+        (i for i, d in enumerate(DATASETS_STORE) if str(d.get("id")) == ds_id),
+        None,
+    )
     if existing_idx is not None:
         DATASETS_STORE[existing_idx] = normalized
     else:
@@ -398,9 +436,21 @@ async def list_datasets(
     return dynamic_list
 
 
-@router.post("/inject", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
-@router.post("/synthetic", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
-@router.post("/{dataset_id}/inject", response_model=Dict[str, Any], status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/inject",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_201_CREATED,
+)
+@router.post(
+    "/synthetic",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_201_CREATED,
+)
+@router.post(
+    "/{dataset_id}/inject",
+    response_model=Dict[str, Any],
+    status_code=status.HTTP_201_CREATED,
+)
 async def inject_synthetic_anomalies(
     dataset_id: Optional[str] = None,
     payload: Optional[Dict[str, Any]] = Body(default={}),
@@ -408,7 +458,9 @@ async def inject_synthetic_anomalies(
     """Dynamically generates and registers a full 299-record synthetic error partition."""
     p_dict = payload if isinstance(payload, dict) else {}
     config_value = p_dict.get("config")
-    config_obj: Dict[str, Any] = config_value if isinstance(config_value, dict) else {}
+    config_obj: Dict[str, Any] = (
+        config_value if isinstance(config_value, dict) else {}
+    )
 
     raw_target = (
         dataset_id
@@ -420,7 +472,9 @@ async def inject_synthetic_anomalies(
     )
     source_id = str(raw_target).strip()
 
-    source_ds = next((d for d in DATASETS_STORE if str(d.get("id")) == source_id), None)
+    source_ds = next(
+        (d for d in DATASETS_STORE if str(d.get("id")) == source_id), None
+    )
     if not source_ds:
         source_ds = DATASETS_STORE[0]
         source_id = str(source_ds.get("id", "ds_001"))
@@ -428,18 +482,26 @@ async def inject_synthetic_anomalies(
     error_fraction, pct_display = parse_error_rate(p_dict, default=0.15)
     new_id = f"ds_syn_{pct_display}pct_{uuid.uuid4().hex[:6]}"
 
-    base_samples = DATASET_SAMPLES_STORE.get(source_id) or generate_default_clinical_rows(299)
+    base_samples = DATASET_SAMPLES_STORE.get(
+        source_id
+    ) or generate_default_clinical_rows(299)
     if len(base_samples) < 299:
         base_samples = generate_default_clinical_rows(299)
 
-    mutated_samples, sample_anomalies = inject_anomalies_into_rows(base_samples, error_fraction)
+    mutated_samples, sample_anomalies = inject_anomalies_into_rows(
+        base_samples, error_fraction
+    )
 
     total_rows = len(mutated_samples)
     total_anomalies = sample_anomalies
 
     raw_name = str(source_ds.get("name", "dataset.csv"))
-    clean_name = re.sub(r"\[Synthetic\s*\d*%?\]\s*", "", raw_name, flags=re.IGNORECASE).strip()
-    clean_name = re.sub(r"\s*\[Synthetic.*?\]", "", clean_name, flags=re.IGNORECASE).strip()
+    clean_name = re.sub(
+        r"\[Synthetic\s*\d*%?\]\s*", "", raw_name, flags=re.IGNORECASE
+    ).strip()
+    clean_name = re.sub(
+        r"\s*\[Synthetic.*?\]", "", clean_name, flags=re.IGNORECASE
+    ).strip()
     if not clean_name:
         clean_name = f"dataset_{source_id}.csv"
 
@@ -449,7 +511,10 @@ async def inject_synthetic_anomalies(
         "source_dataset_id": source_id,
         "rows_count": total_rows,
         "rows": total_rows,
-        "columns_count": source_ds.get("columns_count", len(base_samples[0].keys()) if base_samples else 14),
+        "columns_count": source_ds.get(
+            "columns_count",
+            len(base_samples[0].keys()) if base_samples else 14,
+        ),
         "file_size": "1.4 MB",
         "uploaded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "status": "NEEDS_REMEDIATION",
@@ -461,12 +526,19 @@ async def inject_synthetic_anomalies(
         "injected_percentage": f"{pct_display}%",
         "post_clean_score": round(max(0.40, 1.0 - (error_fraction * 1.6)), 3),
         "quality_score": round(max(0.40, 1.0 - (error_fraction * 1.6)), 3),
-        "flags": {"is_gold_standard": False, "anonymized": True, "auto_clean_enabled": True, "requires_human_review": True},
+        "flags": {
+            "is_gold_standard": False,
+            "anonymized": True,
+            "auto_clean_enabled": True,
+            "requires_human_review": True,
+        },
     }
 
     registered_meta = add_or_update_dataset(new_meta, mutated_samples)
 
-    logger.info(f"Registered synthetic dataset '{registered_meta['name']}' ({new_id}) with {total_anomalies} anomalies across {total_rows} records.")
+    logger.info(
+        f"Registered synthetic dataset '{registered_meta['name']}' ({new_id}) with {total_anomalies} anomalies across {total_rows} records."
+    )
 
     return {
         "status": "SUCCESS",
@@ -491,7 +563,9 @@ async def inject_synthetic_anomalies(
 async def register_dataset(payload: Dict[str, Any] = Body(...)):
     ds_id = str(payload.get("id") or f"ds_{uuid.uuid4().hex[:6]}")
     is_syn = bool(payload.get("synthetic_injected", ds_id.startswith("ds_syn_")))
-    error_fraction, pct_display = parse_error_rate(payload, default=0.20 if is_syn else 0.0)
+    error_fraction, pct_display = parse_error_rate(
+        payload, default=0.20 if is_syn else 0.0
+    )
 
     total_rows = int(payload.get("rows_count", payload.get("rows", 299)))
     anomalies_count = (
@@ -517,7 +591,12 @@ async def register_dataset(payload: Dict[str, Any] = Body(...)):
         "injected_rate": pct_display,
         "flags": payload.get(
             "flags",
-            {"is_gold_standard": not is_syn, "anonymized": True, "auto_clean_enabled": True, "requires_human_review": is_syn},
+            {
+                "is_gold_standard": not is_syn,
+                "anonymized": True,
+                "auto_clean_enabled": True,
+                "requires_human_review": is_syn,
+            },
         ),
     }
 
@@ -530,20 +609,35 @@ async def get_dataset(dataset_id: str = FPath(...)):
     for ds in DATASETS_STORE:
         if str(ds["id"]) == str(dataset_id):
             return apply_dynamic_metadata(ds)
-    raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found.")
+    raise HTTPException(
+        status_code=404, detail=f"Dataset '{dataset_id}' not found."
+    )
 
 
 @router.delete("/{dataset_id}", response_model=Dict[str, Any])
 async def delete_dataset(dataset_id: str = FPath(...)):
-    target_idx = next((i for i, d in enumerate(DATASETS_STORE) if str(d.get("id")) == str(dataset_id)), None)
+    target_idx = next(
+        (
+            i
+            for i, d in enumerate(DATASETS_STORE)
+            if str(d.get("id")) == str(dataset_id)
+        ),
+        None,
+    )
     if target_idx is None:
-        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found.")
+        raise HTTPException(
+            status_code=404, detail=f"Dataset '{dataset_id}' not found."
+        )
 
     DATASETS_STORE.pop(target_idx)
     DATASET_SAMPLES_STORE.pop(str(dataset_id), None)
     save_persisted_storage()
 
-    return {"status": "SUCCESS", "dataset_id": dataset_id, "remaining_count": len(DATASETS_STORE)}
+    return {
+        "status": "SUCCESS",
+        "dataset_id": dataset_id,
+        "remaining_count": len(DATASETS_STORE),
+    }
 
 
 @router.get("/{dataset_id}/sample", response_model=Dict[str, Any])
@@ -553,8 +647,14 @@ async def get_dataset_sample(
 ):
     rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
     if not rows and str(dataset_id).startswith("ds_syn_"):
-        source_meta = next((d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None)
-        source_id = source_meta.get("source_dataset_id", "ds_001") if source_meta else "ds_001"
+        source_meta = next(
+            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
+        )
+        source_id = (
+            source_meta.get("source_dataset_id", "ds_001")
+            if source_meta
+            else "ds_001"
+        )
         rows = DATASET_SAMPLES_STORE.get(source_id, [])
 
     sample_slice = rows[:limit] if rows else []
@@ -571,6 +671,112 @@ async def get_dataset_sample(
     }
 
 
+# ===========================================================================
+# 4. FULL DATASET EXPORT & RECORDS ENDPOINTS (ALL 299+ ROWS)
+# ===========================================================================
+@router.get("/{dataset_id}/records", response_model=Dict[str, Any])
+async def get_all_records(dataset_id: str = FPath(...)):
+    """Returns ALL 299+ records for a dataset without a truncation limit."""
+    rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
+    if not rows and str(dataset_id).startswith("ds_syn_"):
+        source_meta = next(
+            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
+        )
+        source_id = (
+            source_meta.get("source_dataset_id", "ds_001")
+            if source_meta
+            else "ds_001"
+        )
+        rows = DATASET_SAMPLES_STORE.get(source_id, [])
+
+    if not rows:
+        raise HTTPException(
+            status_code=404, detail=f"Dataset '{dataset_id}' has no records."
+        )
+
+    return {
+        "dataset_id": dataset_id,
+        "total_records": len(rows),
+        "records": rows,
+        "rows": rows,
+        "data": rows,
+    }
+
+
+@router.get("/{dataset_id}/export/csv")
+async def export_dataset_csv(dataset_id: str = FPath(...)):
+    """Streams the full 299+ dataset rows as a downloadable CSV file."""
+    rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
+    if not rows and str(dataset_id).startswith("ds_syn_"):
+        source_meta = next(
+            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
+        )
+        source_id = (
+            source_meta.get("source_dataset_id", "ds_001")
+            if source_meta
+            else "ds_001"
+        )
+        rows = DATASET_SAMPLES_STORE.get(source_id, [])
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset '{dataset_id}' has no records to export.",
+        )
+
+    df = pd.DataFrame(rows)
+    stream = io.StringIO()
+    df.to_csv(stream, index=False)
+
+    return Response(
+        content=stream.getvalue(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{dataset_id}.csv"'
+        },
+    )
+
+
+@router.get("/{dataset_id}/export/json")
+async def export_dataset_json(dataset_id: str = FPath(...)):
+    """Streams the full 299+ dataset rows as a formatted JSON file."""
+    rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
+    if not rows and str(dataset_id).startswith("ds_syn_"):
+        source_meta = next(
+            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
+        )
+        source_id = (
+            source_meta.get("source_dataset_id", "ds_001")
+            if source_meta
+            else "ds_001"
+        )
+        rows = DATASET_SAMPLES_STORE.get(source_id, [])
+
+    if not rows:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset '{dataset_id}' has no records to export.",
+        )
+
+    payload = {
+        "dataset_id": dataset_id,
+        "total_records": len(rows),
+        "records": rows,
+    }
+    json_str = json.dumps(payload, indent=2)
+
+    return Response(
+        content=json_str,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{dataset_id}.json"'
+        },
+    )
+
+
+# ===========================================================================
+# 5. DATASET CONFIGURATION FLAGS
+# ===========================================================================
 @router.get("/{dataset_id}/flags", response_model=Dict[str, Any])
 async def get_dataset_flags(dataset_id: str = FPath(...)):
     for ds in DATASETS_STORE:
@@ -580,11 +786,19 @@ async def get_dataset_flags(dataset_id: str = FPath(...)):
 
 
 @router.patch("/{dataset_id}/flags", response_model=Dict[str, Any])
-async def patch_dataset_flags(dataset_id: str = FPath(...), flags: Dict[str, Any] = Body(...)):
+async def patch_dataset_flags(
+    dataset_id: str = FPath(...), flags: Dict[str, Any] = Body(...)
+):
     for ds in DATASETS_STORE:
         if str(ds["id"]) == str(dataset_id):
             ds["flags"] = {**(ds.get("flags") or {}), **flags}
             save_persisted_storage()
-            return {"dataset_id": dataset_id, "flags": ds["flags"], "status": "updated"}
-    raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found.")
+            return {
+                "dataset_id": dataset_id,
+                "flags": ds["flags"],
+                "status": "updated",
+            }
+    raise HTTPException(
+        status_code=404, detail=f"Dataset '{dataset_id}' not found."
+    )
 
