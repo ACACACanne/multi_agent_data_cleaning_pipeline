@@ -48,6 +48,7 @@ export default function Dashboard() {
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerDatasetId, setViewerDatasetId] = useState(null);
+  const [activeDataTab, setActiveDataTab] = useState("registry"); // 'registry' | 'preview'
 
   const [selectedDataset, setSelectedDataset] = useState("all");
   const [loadingCleaner, setLoadingCleaner] = useState(false);
@@ -106,31 +107,25 @@ export default function Dashboard() {
     loadCleanerData(selectedDataset);
   }, [selectedDataset, loadCleanerData]);
 
-  // Run Cleaner Agent
   async function runCleaner() {
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
         : selectedDataset || "all";
-
     setLoadingCleaner(true);
-
     try {
       const data = await postRunAgents(dsId, ["cleaner"]);
       const cleanerResult =
         data?.results?.cleaner ?? data?.summary ?? data ?? null;
-
       if (cleanerResult) {
         setCleanerMetrics(cleanerResult);
       } else {
         await loadCleanerData(dsId);
       }
-
       const hist = await fetchRemediationHistory(
         dsId === "all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
-
       await refreshAll();
     } catch (err) {
       console.error("runCleaner error:", err);
@@ -139,15 +134,12 @@ export default function Dashboard() {
     }
   }
 
-  // Run All Multi-Agent Pipeline (Auditor -> Remediator -> Validator)
   async function runAllAgents() {
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
         : selectedDataset || "all";
-
     setLoadingCleaner(true);
-
     try {
       const data = await postRunAgents(dsId, [
         "auditor",
@@ -157,18 +149,15 @@ export default function Dashboard() {
       ]);
       const cleanerResult =
         data?.results?.cleaner ?? data?.summary ?? data ?? null;
-
       if (cleanerResult) {
         setCleanerMetrics(cleanerResult);
       } else {
         await loadCleanerData(dsId);
       }
-
       const hist = await fetchRemediationHistory(
         dsId === "all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
-
       await refreshAll();
     } catch (err) {
       console.error("runAllAgents error:", err);
@@ -177,7 +166,6 @@ export default function Dashboard() {
     }
   }
 
-  // Telemetry mappings
   const selectedTrajectories = metrics?.trajectories?.[effectiveDatasetId] ||
     metrics?.trajectories?.["all"] ||
     cleanerMetrics?.trajectories || {
@@ -189,17 +177,14 @@ export default function Dashboard() {
   const isSynthetic =
     String(selectedDataset).startsWith("ds_syn_") ||
     String(effectiveDatasetId).startsWith("ds_syn_");
-
   const baselineQuality =
     cleanerMetrics?.baseline_quality ??
     metrics?.datasets?.[effectiveDatasetId]?.quality_score ??
     (isSynthetic ? 0.742 : 0.885);
-
   const baselineIssues =
     cleanerMetrics?.issues ??
     metrics?.datasets?.[effectiveDatasetId]?.issues ??
     (isSynthetic ? 32 : 14);
-
   const cleanedQuality = cleanerMetrics?.cleaned_quality ?? 0.988;
   const cleanedIssues = cleanerMetrics?.issues ?? 0;
 
@@ -220,43 +205,89 @@ export default function Dashboard() {
 
   return (
     <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-12">
-      {/* 1. Dataset Ingestion / Upload */}
+      {/* Ingestion Upload Panel */}
       <section aria-label="Upload Dataset">
         <UploadPanel onUploaded={() => refreshAll()} />
       </section>
 
-      {/* 2. Main 2-Column Responsive Operational Grid */}
+      {/* Main 2-Column Responsive Operational Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* LEFT COLUMN: Data Operations, Cleaning Pipelines, and Trajectory Charts (2 Cols Wide) */}
+        {/* LEFT COLUMN: Data Operations & Telemetry (2 Cols Wide) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Dataset Selector & Synthetic Injection List */}
-          <DatasetList
-            datasets={visibleDatasets}
-            selectedDatasetId={selectedDataset}
-            onRefresh={async () => {
-              await refreshAll();
-              await loadCleanerData(selectedDataset);
-            }}
-            onOpenFullViewer={openViewerModal}
-            onSelectDataset={(id) => setSelectedDataset(id)}
-          />
-
-          {/* Quick Records Preview */}
-          <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="text-base font-bold text-brand-accent">
-                  Quick Records Browse
-                </h3>
-                <div className="text-xs text-gray-400">
-                  Light preview of active records ({effectiveDatasetId})
-                </div>
+          {/* COMPACT SLIDING DATASET & SAMPLES HUB */}
+          <div className="bg-brand-light rounded-xl border border-brand-accent/20 shadow-md overflow-hidden">
+            {/* Sliding Tab Header */}
+            <div className="p-3 border-b border-brand-accent/20 flex items-center justify-between bg-brand-dark/60 gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveDataTab("registry")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    activeDataTab === "registry"
+                      ? "bg-brand-accent text-black shadow-sm"
+                      : "text-gray-300 hover:text-white hover:bg-brand-dark/40"
+                  }`}
+                >
+                  Dataset Registry ({visibleDatasets.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveDataTab("preview")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                    activeDataTab === "preview"
+                      ? "bg-brand-accent text-black shadow-sm"
+                      : "text-gray-300 hover:text-white hover:bg-brand-dark/40"
+                  }`}
+                >
+                  Quick Record Samples ({effectiveDatasetId})
+                </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => openViewerModal(effectiveDatasetId)}
+                className="text-[11px] font-semibold text-brand-accent hover:underline shrink-0"
+              >
+                Expand Modal ↗
+              </button>
             </div>
-            <RecordsTable datasetId={effectiveDatasetId} initialPageSize={5} />
+
+            {/* Sliding / Scrollable Panel Content */}
+            <div className="p-3.5 max-h-[340px] overflow-y-auto overflow-x-hidden space-y-3">
+              {activeDataTab === "registry" ? (
+                <DatasetList
+                  datasets={visibleDatasets}
+                  selectedDatasetId={selectedDataset}
+                  onRefresh={async () => {
+                    await refreshAll();
+                    await loadCleanerData(selectedDataset);
+                  }}
+                  onOpenFullViewer={openViewerModal}
+                  onSelectDataset={(id) => setSelectedDataset(id)}
+                />
+              ) : (
+                <div className="space-y-2">
+                  <div className="text-[11px] text-gray-400 flex items-center justify-between pb-1 border-b border-brand-accent/10">
+                    <span>
+                      Showing active record rows for:{" "}
+                      <strong className="text-white font-mono">
+                        {effectiveDatasetId}
+                      </strong>
+                    </span>
+                    <span className="text-emerald-400 font-mono text-[10px]">
+                      Real-time JSON &amp; Tabular Sync
+                    </span>
+                  </div>
+                  <RecordsTable
+                    datasetId={effectiveDatasetId}
+                    initialPageSize={4}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* RemediRa Pro Cleaner Agent Control Card */}
+          {/* Cleaner Agent Control Card */}
           <CleanerAgentCard
             datasets={visibleDatasets}
             datasetId={selectedDataset}
@@ -267,7 +298,7 @@ export default function Dashboard() {
             onRunAllAgents={runAllAgents}
           />
 
-          {/* Data Anomaly & Invariant Risk Map */}
+          {/* Anomaly Risk Map */}
           <DatasetRiskMap
             risk={
               metrics?.risk?.[effectiveDatasetId] || {
@@ -275,14 +306,14 @@ export default function Dashboard() {
                 factors: isSynthetic
                   ? [
                       "Synthetic noise injected",
-                      "Outliers and invariant boundary shifts detected",
+                      "Outliers and invariant shifts detected",
                     ]
                   : ["Baseline verified", "Contract assertions passing"],
               }
             }
           />
 
-          {/* Projected Quality Degradation Forecast */}
+          {/* Quality Forecast Chart */}
           <QualityForecastChart
             forecast={
               metrics?.forecast?.[effectiveDatasetId] || [
@@ -299,19 +330,19 @@ export default function Dashboard() {
             cleanedIssues={cleanedIssues}
           />
 
-          {/* Quality Trajectory Curves */}
+          {/* Trajectory Curves */}
           <TrajectoryGraph
             datasetId={effectiveDatasetId}
             trajectories={selectedTrajectories}
           />
 
-          {/* Contextual Action Suggestions */}
+          {/* Action Suggestions */}
           <FixSuggestionsPanel
             suggestions={cleanerMetrics?.suggestions || []}
             onApply={() => runCleaner()}
           />
 
-          {/* Agent Reasoning Decision Trace */}
+          {/* Decision Timeline */}
           <AgentReasoningTimeline
             reasoning={
               metrics?.reasoning?.[effectiveDatasetId] || [
@@ -342,7 +373,7 @@ export default function Dashboard() {
             }
           />
 
-          {/* Autonomous Cleaner vs. Manual Human Fixes */}
+          {/* Cleaner vs. Manual Comparison */}
           <ComparisonCleanerManual
             cleanerMetrics={cleanerMetrics}
             manualMetrics={
@@ -362,11 +393,9 @@ export default function Dashboard() {
             >
               View Remediation History
             </button>
-
             <DatasetHealthBadge score={baselineQuality} />
           </div>
 
-          {/* Slide-Over Remediation Drawer */}
           <RemediationHistoryDrawer
             open={showHistoryDrawer}
             isOpen={showHistoryDrawer}
@@ -375,7 +404,7 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* RIGHT COLUMN: Telemetry, Benchmarking, Experiments, Notes (1 Col Wide) */}
+        {/* RIGHT COLUMN: Telemetry, Benchmarking, Experiments (1 Col Wide) */}
         <div className="space-y-6">
           <MetricsPanel
             metrics={metrics}
@@ -389,7 +418,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 3. Real-Time System Run Log */}
+      {/* Real-Time System Run Log */}
       <section aria-label="System Run Log" className="mt-8">
         <h3 className="text-base text-gray-200 mb-2 font-bold">
           System Run Log
@@ -411,7 +440,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* 4. Full Dataset Viewer Modal */}
+      {/* Dataset Viewer Modal */}
       {viewerOpen && viewerDatasetId && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6">
           <div
@@ -435,7 +464,6 @@ export default function Dashboard() {
                 Close
               </button>
             </div>
-
             <div className="p-4 overflow-y-auto flex-1">
               <DatasetViewer datasetId={viewerDatasetId} />
             </div>

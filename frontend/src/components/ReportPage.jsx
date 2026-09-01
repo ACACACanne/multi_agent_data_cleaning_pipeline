@@ -3,7 +3,6 @@ import React, { useRef, useMemo } from "react";
 import { Link } from "react-router-dom";
 import useDashboardData from "../hooks/useDashboardData";
 
-// Standalone RemediRa Triad Shield Icon (Fixed Dimension)
 export const RemediRaShieldIcon = () => (
   <svg
     width="34"
@@ -28,21 +27,15 @@ export const RemediRaShieldIcon = () => (
         <stop offset="100%" stopColor="#0b1220" />
       </linearGradient>
     </defs>
-
-    {/* Outer Shield Boundary */}
     <path
       d="M50 5 L90 20 V58 C90 82 50 96 50 96 C50 96 10 82 10 58 V20 Z"
       fill="url(#repShieldBg)"
       stroke="url(#repShieldGrad)"
       strokeWidth="3.5"
     />
-
-    {/* Multi-Agent Triad Nodes */}
     <circle cx="28" cy="34" r="6" fill="#60a5fa" />
     <circle cx="72" cy="34" r="6" fill="#38bdf8" />
     <circle cx="50" cy="78" r="6.5" fill="#34d399" />
-
-    {/* Network Invariant Bridges */}
     <line
       x1="28"
       y1="34"
@@ -73,8 +66,6 @@ export const RemediRaShieldIcon = () => (
       strokeDasharray="3,3"
       opacity="0.8"
     />
-
-    {/* Central Verification Pulse Vector */}
     <path
       d="M30 52 L42 52 L47 41 L53 63 L58 48 L62 52 L70 52"
       stroke="url(#repShieldGrad)"
@@ -91,10 +82,9 @@ function safeText(val, fallback = "") {
     typeof val === "string" ||
     typeof val === "number" ||
     typeof val === "boolean"
-  ) {
+  )
     return String(val);
-  }
-  if (typeof val === "object") {
+  if (typeof val === "object")
     return (
       val.message ||
       val.finding ||
@@ -102,7 +92,6 @@ function safeText(val, fallback = "") {
       val.reasoning ||
       JSON.stringify(val)
     );
-  }
   return String(val);
 }
 
@@ -126,9 +115,7 @@ export default function ReportPage() {
   } = useDashboardData({ autoLoad: true });
 
   const handlePrintPdf = () => {
-    if (typeof window !== "undefined") {
-      window.print();
-    }
+    if (typeof window !== "undefined") window.print();
   };
 
   const safeDatasets = useMemo(
@@ -140,7 +127,6 @@ export default function ReportPage() {
     [runLog],
   );
 
-  // 1. DATASET TOTALS & ANOMALIES
   const totalDatasets = Math.max(1, safeDatasets.length);
   const totalRecordsAnalyzed = useMemo(() => {
     const calculated = safeDatasets.reduce(
@@ -150,16 +136,6 @@ export default function ReportPage() {
     return calculated > 0 ? calculated : 4485;
   }, [safeDatasets]);
 
-  const totalAnomaliesDetected = useMemo(() => {
-    return safeDatasets.reduce((acc, d) => {
-      const isSyn = d?.id?.startsWith("ds_syn_") || d?.synthetic_injected;
-      return (
-        acc + safeFloat(d?.anomalies_count ?? d?.anomalies, isSyn ? 44 : 0)
-      );
-    }, 0);
-  }, [safeDatasets]);
-
-  // 2. DYNAMIC QUALITY SCORES & CONVERGENCE
   const baselineQualityRaw = safeFloat(
     cleanerMetrics?.baseline_quality ?? metrics?.baseline_quality,
     0.742,
@@ -170,7 +146,6 @@ export default function ReportPage() {
       metrics?.cleaned_quality,
     0.994,
   );
-
   const globalQualityScore = (cleanedQualityRaw * 100).toFixed(1);
   const qualityGain = `+${((cleanedQualityRaw - baselineQualityRaw) * 100).toFixed(1)}%`;
 
@@ -188,31 +163,23 @@ export default function ReportPage() {
   );
   const rejectionRate = (rejectionRateRaw * 100).toFixed(2);
 
-  // 3. ECONOMIC CALIBRATION (NHS AfC Band 8a Standard)
-  const agentSecondsPerDataset =
-    safeFloat(
-      cleanerMetrics?.latency_seconds ??
-        metrics?.latency_seconds ??
-        metrics?.avg_pipeline_duration_seconds ??
-        (cleanerMetrics?.duration_ms
-          ? cleanerMetrics.duration_ms / 1000
-          : null),
+  const agentSecondsPerDataset = safeFloat(
+    cleanerMetrics?.latency_seconds ??
+      metrics?.latency_seconds ??
+      metrics?.avg_pipeline_duration_seconds ??
       1.28,
-    ) || 1.28;
-
-  const manualHoursPerDataset =
-    safeFloat(
-      manualMetrics?.review_hours_per_dataset ??
-        metrics?.manual_metrics?.review_hours_per_dataset,
-      4.5,
-    ) || 4.5;
-
-  const hourlyRateStewardGbp =
-    safeFloat(
-      manualMetrics?.steward_hourly_rate_gbp ??
-        metrics?.manual_metrics?.steward_hourly_rate_gbp,
-      71.11,
-    ) || 71.11;
+    1.28,
+  );
+  const manualHoursPerDataset = safeFloat(
+    manualMetrics?.review_hours_per_dataset ??
+      metrics?.manual_metrics?.review_hours_per_dataset,
+    4.5,
+  );
+  const hourlyRateStewardGbp = safeFloat(
+    manualMetrics?.steward_hourly_rate_gbp ??
+      metrics?.manual_metrics?.steward_hourly_rate_gbp,
+    71.11,
+  );
 
   const totalManualHours = (totalDatasets * manualHoursPerDataset).toFixed(1);
   const totalManualLaborCostVal =
@@ -226,17 +193,13 @@ export default function ReportPage() {
   const estimatedAgentComputeCostVal = totalDatasets * 0.05;
   const estimatedAgentComputeCost = estimatedAgentComputeCostVal.toLocaleString(
     "en-GB",
-    {
-      style: "currency",
-      currency: "GBP",
-    },
+    { style: "currency", currency: "GBP" },
   );
 
   const timeSavingsMultiplier = Math.max(
     1,
     Math.round((manualHoursPerDataset * 3600) / agentSecondsPerDataset),
   ).toLocaleString();
-
   const costSavingsPercentage =
     totalManualLaborCostVal > 0
       ? (
@@ -246,47 +209,38 @@ export default function ReportPage() {
         ).toFixed(2)
       : "99.98";
 
-  // 4. HARDWARE TELEMETRY
   const cpuAvg = safeFloat(
     cleanerMetrics?.resources?.cpu_utilization_pct ??
-      metrics?.resources?.cpu_utilization_pct ??
-      metrics?.hardware_telemetry?.cpu_utilization_pct,
+      metrics?.resources?.cpu_utilization_pct,
     18.4,
   );
   const cpuPeak = safeFloat(
-    cleanerMetrics?.resources?.peak_cpu_pct ??
-      metrics?.resources?.peak_cpu_pct ??
-      metrics?.hardware_telemetry?.peak_cpu_pct,
+    cleanerMetrics?.resources?.peak_cpu_pct ?? metrics?.resources?.peak_cpu_pct,
     28.6,
   );
   const memRss = safeFloat(
     cleanerMetrics?.resources?.memory_rss_mb ??
-      metrics?.resources?.memory_rss_mb ??
-      metrics?.hardware_telemetry?.memory_rss_mb,
+      metrics?.resources?.memory_rss_mb,
     142.6,
   );
   const memPeak = safeFloat(
     cleanerMetrics?.resources?.peak_memory_mb ??
-      metrics?.resources?.peak_memory_mb ??
-      metrics?.hardware_telemetry?.peak_memory_mb,
+      metrics?.resources?.peak_memory_mb,
     168.4,
   );
   const throughput = Math.round(
     safeFloat(
       cleanerMetrics?.resources?.throughput_records_per_sec ??
-        metrics?.resources?.throughput_records_per_sec ??
-        metrics?.hardware_telemetry?.throughput_records_per_sec,
+        metrics?.resources?.throughput_records_per_sec,
       3504,
     ),
   );
   const memPer1k = safeFloat(
     cleanerMetrics?.resources?.memory_per_1k_records_mb ??
-      metrics?.resources?.memory_per_1k_records_mb ??
-      metrics?.hardware_telemetry?.memory_per_1k_records_mb,
+      metrics?.resources?.memory_per_1k_records_mb,
     31.8,
   );
 
-  // 5. TRAJECTORY CONVERGENCE VECTORS
   const rawAgentTraj = useMemo(() => {
     const list =
       cleanerMetrics?.trajectories?.agent ||
@@ -363,37 +317,20 @@ export default function ReportPage() {
   );
   const baseSvgPoints = useMemo(() => buildSvgPath(rawBaseTraj), [rawBaseTraj]);
 
-  // 6. DIMENSIONAL DATA QUALITY SCORES
   const dimensionalScores = useMemo(() => {
     const parseScore = (field, name, defaultBefore, defaultAfter) => {
       const bObj =
         metrics?.[field]?.before ??
         metrics?.dimensional_breakdown?.[field]?.before ??
         cleanerMetrics?.dimensional_scores?.[field]?.before;
-
       const aObj =
         metrics?.[field]?.after ??
         metrics?.dimensional_breakdown?.[field]?.after ??
         cleanerMetrics?.dimensional_scores?.[field]?.after;
-
-      let arrayBefore = null;
-      let arrayAfter = null;
-      if (Array.isArray(metrics?.dimensions)) {
-        const found = metrics.dimensions.find(
-          (d) => d?.dimension?.toLowerCase() === field.toLowerCase(),
-        );
-        if (found) {
-          arrayBefore = found.before;
-          arrayAfter = found.after;
-        }
-      }
-
-      let b = safeFloat(bObj ?? arrayBefore, defaultBefore);
-      let a = safeFloat(aObj ?? arrayAfter, defaultAfter);
-
+      let b = safeFloat(bObj, defaultBefore);
+      let a = safeFloat(aObj, defaultAfter);
       if (b > 1.0) b = b / 100.0;
       if (a > 1.0) a = a / 100.0;
-
       return {
         name,
         before: `${(b * 100).toFixed(1)}%`,
@@ -402,7 +339,6 @@ export default function ReportPage() {
         status: a >= 0.95 ? "OPTIMIZED" : "PENDING",
       };
     };
-
     return [
       parseScore("completeness", "Completeness", 0.764, 0.994),
       parseScore("accuracy", "Accuracy", 0.721, 0.988),
@@ -412,7 +348,6 @@ export default function ReportPage() {
     ];
   }, [metrics, cleanerMetrics]);
 
-  // 7. MULTI-AGENT REASONING TRAILS
   const liveAgentEvents = useMemo(() => {
     if (Array.isArray(metrics?.reasoning) && metrics.reasoning.length > 0) {
       return metrics.reasoning.map((item, idx) => ({
@@ -462,12 +397,18 @@ export default function ReportPage() {
   return (
     <>
       <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 10mm;
+        }
         @media print {
-          body {
+          html, body {
             background-color: #ffffff !important;
             color: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           body * {
             visibility: hidden;
@@ -481,13 +422,27 @@ export default function ReportPage() {
             left: 0 !important;
             top: 0 !important;
             width: 100% !important;
+            max-width: 100% !important;
+            box-sizing: border-box !important;
             display: block !important;
             background: #ffffff !important;
             color: #000000 !important;
-            padding: 20px !important;
+            padding: 0 !important;
             margin: 0 !important;
             box-shadow: none !important;
             border: none !important;
+          }
+          .print-table {
+            width: 100% !important;
+            table-layout: fixed !important;
+            border-collapse: collapse !important;
+          }
+          .print-table th, 
+          .print-table td {
+            padding: 4px 6px !important;
+            font-size: 8pt !important;
+            word-break: break-word !important;
+            overflow-wrap: break-word !important;
           }
           .print\\:hidden,
           header,
@@ -549,7 +504,7 @@ export default function ReportPage() {
             ref={reportRef}
             className="p-8 sm:p-12 rounded-2xl bg-brand-light border border-brand-accent/20 shadow-2xl space-y-10 print:p-0 print:border-none print:shadow-none print:bg-white print:text-black"
           >
-            {/* Header with New RemediRa Pro Branding */}
+            {/* Header with RemediRa Pro Branding */}
             <div className="border-b border-brand-accent/20 pb-6 print:border-gray-300">
               <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
                 <div className="flex items-center gap-3.5">
@@ -752,7 +707,7 @@ export default function ReportPage() {
               </div>
             </section>
 
-            {/* Section 3: Cost Efficiency & Time Consumption Comparison (GBP £) */}
+            {/* Section 3: Cost Efficiency & Time Consumption */}
             <section className="space-y-4">
               <div className="flex items-center justify-between border-b border-brand-accent/20 pb-2 print:border-gray-300">
                 <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
@@ -864,22 +819,34 @@ export default function ReportPage() {
               </div>
             </section>
 
-            {/* Section 4: Dataset Scope & Health Registry */}
+            {/* Section 4: Dataset Scope & Health Registry (Table Fixed Sizing) */}
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
                 4. Dataset Health, Scope &amp; Synthetic Noise Registry
               </h2>
               <div className="rounded-xl border border-brand-accent/20 overflow-hidden print:border-gray-300">
-                <table className="w-full text-left text-xs border-collapse">
+                <table className="w-full text-left text-xs border-collapse print-table table-fixed">
                   <thead>
                     <tr className="bg-brand-dark border-b border-brand-accent/20 text-gray-300 print:bg-gray-100 print:text-gray-700 font-semibold">
-                      <th className="p-3">Dataset ID</th>
-                      <th className="p-3">Dataset Name &amp; Domain</th>
-                      <th className="p-3">Scope</th>
-                      <th className="p-3">Records</th>
-                      <th className="p-3">Anomalies Detected</th>
-                      <th className="p-3">Post-Clean Score</th>
-                      <th className="p-3">Status</th>
+                      <th className="w-[20%] p-2.5 sm:p-3 truncate">
+                        Dataset ID
+                      </th>
+                      <th className="w-[26%] p-2.5 sm:p-3 truncate">
+                        Name &amp; Domain
+                      </th>
+                      <th className="w-[14%] p-2.5 sm:p-3">Scope</th>
+                      <th className="w-[10%] p-2.5 sm:p-3 text-center">
+                        Records
+                      </th>
+                      <th className="w-[10%] p-2.5 sm:p-3 text-center">
+                        Anomalies
+                      </th>
+                      <th className="w-[10%] p-2.5 sm:p-3 text-center">
+                        Score
+                      </th>
+                      <th className="w-[10%] p-2.5 sm:p-3 text-center">
+                        Status
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-brand-accent/10 print:divide-gray-200">
@@ -895,7 +862,6 @@ export default function ReportPage() {
                         d?.anomalies_count ?? d?.anomalies,
                         isSyn ? 44 : 0,
                       );
-
                       const postCleanVal = safeFloat(
                         d?.post_clean_score ??
                           d?.score ??
@@ -903,7 +869,6 @@ export default function ReportPage() {
                           0.994,
                       );
                       const postCleanScoreFormatted = `${(postCleanVal * 100).toFixed(1)}%`;
-
                       const isCertified =
                         d?.status === "CERTIFIED" ||
                         d?.status === "OPTIMAL" ||
@@ -914,33 +879,35 @@ export default function ReportPage() {
                           key={id}
                           className="text-gray-300 print:text-gray-800"
                         >
-                          <td className="p-3 font-mono text-brand-accent print:text-blue-700 font-semibold">
+                          <td className="p-2 sm:p-3 font-mono text-brand-accent print:text-blue-700 font-semibold break-all text-[11px]">
                             {id}
                           </td>
-                          <td className="p-3 font-medium text-white print:text-gray-900">
+                          <td className="p-2 sm:p-3 font-medium text-white print:text-gray-900 break-words text-[11px]">
                             {name}
                           </td>
-                          <td className="p-3">
+                          <td className="p-2 sm:p-3">
                             <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold leading-tight ${
                                 isSyn
                                   ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 print:bg-amber-100 print:text-amber-800"
                                   : "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 print:bg-indigo-100 print:text-indigo-800"
                               }`}
                             >
-                              {isSyn ? "Synthetic Noise" : "Clinical Baseline"}
+                              {isSyn ? "Synthetic" : "Baseline"}
                             </span>
                           </td>
-                          <td className="p-3 font-mono">{rowCount}</td>
-                          <td className="p-3 font-mono text-amber-400 print:text-amber-700">
+                          <td className="p-2 sm:p-3 font-mono text-center text-[11px]">
+                            {rowCount}
+                          </td>
+                          <td className="p-2 sm:p-3 font-mono text-amber-400 print:text-amber-700 text-center text-[11px]">
                             {anomalies}
                           </td>
-                          <td className="p-3 font-mono text-emerald-400 print:text-emerald-700 font-bold">
+                          <td className="p-2 sm:p-3 font-mono text-emerald-400 print:text-emerald-700 font-bold text-center text-[11px]">
                             {postCleanScoreFormatted}
                           </td>
-                          <td className="p-3">
+                          <td className="p-2 sm:p-3 text-center">
                             <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                              className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold leading-tight ${
                                 isCertified
                                   ? "bg-emerald-500/20 text-emerald-300 print:bg-emerald-100 print:text-emerald-800 border border-emerald-500/30"
                                   : "bg-amber-500/20 text-amber-300 print:bg-amber-100 print:text-amber-800 border border-amber-500/30"
@@ -1007,7 +974,6 @@ export default function ReportPage() {
                   </div>
                 </div>
 
-                {/* Vector SVG Graph Computed from Live Data */}
                 <div className="h-44 w-full bg-brand-light/70 rounded-lg p-3 border border-brand-accent/15 print:bg-white print:border-gray-300 relative">
                   <svg
                     viewBox="0 0 500 120"
@@ -1110,7 +1076,6 @@ export default function ReportPage() {
                   </svg>
                 </div>
 
-                {/* Trajectory Table Summary */}
                 {trajectoryPoints.length > 0 && (
                   <div className="grid grid-cols-5 sm:grid-cols-10 gap-1.5 text-center font-mono text-[10px]">
                     {trajectoryPoints.map((pt) => (
@@ -1193,7 +1158,7 @@ export default function ReportPage() {
               </div>
             </section>
 
-            {/* Section 7: Live Multi-Agent Reasoning Decision Trail */}
+            {/* Section 7: Multi-Agent Reasoning Trail */}
             <section className="space-y-3">
               <h2 className="text-xs font-bold text-brand-accent uppercase tracking-wider print:text-blue-700">
                 7. Multi-Agent Reasoning, Remediation &amp; Verification Trail
