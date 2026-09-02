@@ -65,7 +65,16 @@ export default function Dashboard() {
     setViewerDatasetId(null);
   };
 
-  const visibleDatasets = (datasets || []).filter((d) => !d.hidden);
+  // Strictly filter visible datasets: only active baseline and synthetic input datasets.
+  // Cleaned outputs ([Cleaned] / ds_clean_) and hidden datasets are completely excluded.
+  const visibleDatasets = (datasets || []).filter(
+    (d) =>
+      !d.hidden &&
+      !d.flags?.hidden &&
+      !d.flags?.is_cleaned &&
+      !d.name?.includes("[Cleaned]") &&
+      !String(d.id).startsWith("ds_clean_"),
+  );
 
   useEffect(() => {
     if (!selectedDataset && visibleDatasets.length > 0) {
@@ -74,7 +83,10 @@ export default function Dashboard() {
   }, [visibleDatasets, selectedDataset]);
 
   const effectiveDatasetId =
-    selectedDataset === "all" || !selectedDataset
+    selectedDataset === "all" ||
+    selectedDataset === "synthetic_all" ||
+    !selectedDataset ||
+    !visibleDatasets.some((d) => String(d.id) === String(selectedDataset))
       ? visibleDatasets[0]?.id || "ds_001"
       : selectedDataset;
 
@@ -112,20 +124,28 @@ export default function Dashboard() {
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
         : selectedDataset || "all";
+
     setLoadingCleaner(true);
     try {
       const data = await postRunAgents(dsId, ["cleaner"]);
+
+      // Extract metrics and preserve download manifests for CleanerAgentCard
+      const exportsList =
+        data?.cleaned_exports || data?.results?.cleaner?.cleaned_exports || [];
       const cleanerResult =
-        data?.results?.cleaner ?? data?.summary ?? data ?? null;
-      if (cleanerResult) {
-        setCleanerMetrics(cleanerResult);
-      } else {
-        await loadCleanerData(dsId);
-      }
+        data?.results?.cleaner ?? data?.cleaner ?? data?.summary ?? data ?? {};
+
+      setCleanerMetrics({
+        ...cleanerResult,
+        cleaned_exports: exportsList,
+      });
+
       const hist = await fetchRemediationHistory(
-        dsId === "all" ? undefined : dsId,
+        dsId === "all" || dsId === "synthetic_all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
+
+      // Refresh baseline and synthetic input datasets telemetry
       await refreshAll();
     } catch (err) {
       console.error("runCleaner error:", err);
@@ -139,6 +159,7 @@ export default function Dashboard() {
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
         : selectedDataset || "all";
+
     setLoadingCleaner(true);
     try {
       const data = await postRunAgents(dsId, [
@@ -147,17 +168,22 @@ export default function Dashboard() {
         "remediator",
         "cleaner",
       ]);
+
+      const exportsList =
+        data?.cleaned_exports || data?.results?.cleaner?.cleaned_exports || [];
       const cleanerResult =
-        data?.results?.cleaner ?? data?.summary ?? data ?? null;
-      if (cleanerResult) {
-        setCleanerMetrics(cleanerResult);
-      } else {
-        await loadCleanerData(dsId);
-      }
+        data?.results?.cleaner ?? data?.cleaner ?? data?.summary ?? data ?? {};
+
+      setCleanerMetrics({
+        ...cleanerResult,
+        cleaned_exports: exportsList,
+      });
+
       const hist = await fetchRemediationHistory(
-        dsId === "all" ? undefined : dsId,
+        dsId === "all" || dsId === "synthetic_all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
+
       await refreshAll();
     } catch (err) {
       console.error("runAllAgents error:", err);
@@ -185,7 +211,7 @@ export default function Dashboard() {
     cleanerMetrics?.issues ??
     metrics?.datasets?.[effectiveDatasetId]?.issues ??
     (isSynthetic ? 32 : 14);
-  const cleanedQuality = cleanerMetrics?.cleaned_quality ?? 0.988;
+  const cleanedQuality = cleanerMetrics?.cleaned_quality ?? 0.994;
   const cleanedIssues = cleanerMetrics?.issues ?? 0;
 
   const formatLogItem = (item) => {
@@ -216,7 +242,7 @@ export default function Dashboard() {
         <div className="lg:col-span-2 space-y-6">
           {/* COMPACT SLIDING DATASET & SAMPLES HUB */}
           <div className="bg-brand-light rounded-xl border border-brand-accent/20 shadow-md overflow-hidden">
-            {/* Sliding Tab Header */}
+            {/* Sliding Tab Header with High-Contrast Dark Styling */}
             <div
               style={{
                 backgroundColor: "#0b1220",
@@ -236,7 +262,7 @@ export default function Dashboard() {
                     border:
                       activeDataTab === "registry"
                         ? "1px solid #60a5fa"
-                        : "1px solid rgba(96, 165, 250, 0.2)",
+                        : "1px solid rgba(96, 165, 250, 0.25)",
                   }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
@@ -254,7 +280,7 @@ export default function Dashboard() {
                     border:
                       activeDataTab === "preview"
                         ? "1px solid #60a5fa"
-                        : "1px solid rgba(96, 165, 250, 0.2)",
+                        : "1px solid rgba(96, 165, 250, 0.25)",
                   }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
@@ -312,7 +338,7 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Cleaner Agent Control Card */}
+          {/* Cleaner Agent Control Card (Hosts Post-Cleaning Download Offer Banner) */}
           <CleanerAgentCard
             datasets={visibleDatasets}
             datasetId={selectedDataset}

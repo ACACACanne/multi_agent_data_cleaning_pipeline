@@ -2,6 +2,7 @@
 """
 Datasets Route Controller (100% Real-Time Full Cohort Anomaly Engine)
 Manages clinical baseline datasets and synthetic partitions with 299-record cohort persistence.
+Streams downloadable exports formatted as 'synthetic_<percentage>%_<name>' or original clean names.
 """
 
 from __future__ import annotations
@@ -101,7 +102,7 @@ def compute_dynamic_injection_percentage(d: Dict[str, Any]) -> int:
 
 
 def format_dynamic_synthetic_name(d: Dict[str, Any]) -> str:
-    """Formats dataset name as '[Synthetic X%] Clean_Name.csv'."""
+    """Formats UI dataset display name as '[Synthetic X%] Clean_Name.csv'."""
     raw_name = str(d.get("name", "dataset.csv"))
     clean_name = re.sub(
         r"\[Synthetic\s*\d*%?\]\s*", "", raw_name, flags=re.IGNORECASE
@@ -118,6 +119,34 @@ def format_dynamic_synthetic_name(d: Dict[str, Any]) -> str:
 
     pct = compute_dynamic_injection_percentage(d)
     return f"[Synthetic {pct}%] {clean_name}"
+
+
+def format_export_filename(dataset_meta: Dict[str, Any], ext: str = "csv") -> str:
+    """
+    Formats the downloadable file name:
+    - Synthetic: 'synthetic_<pct>%_<clean_name>.<ext>' (e.g., 'synthetic_15%_heart.csv')
+    - Baseline: '<clean_name>.<ext>' (e.g., 'heart.csv')
+    """
+    raw_name = str(dataset_meta.get("name", "dataset.csv"))
+    clean_name = re.sub(r"\[.*?\]\s*", "", raw_name, flags=re.IGNORECASE).strip()
+    clean_name = re.sub(r"\.(csv|json)$", "", clean_name, flags=re.IGNORECASE).strip()
+    clean_name = re.sub(r"_\[injected_.*?\]", "", clean_name, flags=re.IGNORECASE).strip()
+
+    if not clean_name:
+        clean_name = f"dataset_{dataset_meta.get('id', 'export')}"
+
+    is_syn = (
+        bool(dataset_meta.get("synthetic_injected"))
+        or str(dataset_meta.get("id", "")).startswith("ds_syn_")
+        or "Synthetic" in str(dataset_meta.get("name", ""))
+    )
+
+    if is_syn:
+        pct = compute_dynamic_injection_percentage(dataset_meta)
+        clean_name = re.sub(r"^synthetic_(\d+%?_)?", "", clean_name, flags=re.IGNORECASE).strip()
+        return f"synthetic_{pct}%_{clean_name}.{ext}"
+
+    return f"{clean_name}.{ext}"
 
 
 def apply_dynamic_metadata(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -332,7 +361,6 @@ INITIAL_DATASETS: List[Dict[str, Any]] = [
     },
 ]
 
-# Exported module-level stores for metrics.py and cleaner.py
 DATASETS_STORE: List[Dict[str, Any]] = []
 DATASET_SAMPLES_STORE: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -672,45 +700,20 @@ async def get_dataset_sample(
 
 
 # ===========================================================================
-# 4. FULL DATASET EXPORT & RECORDS ENDPOINTS (ALL 299+ ROWS)
+# 4. EXPORT ENDPOINTS WITH SYNTHETIC FILENAME FORMATTING
 # ===========================================================================
-@router.get("/{dataset_id}/records", response_model=Dict[str, Any])
-async def get_all_records(dataset_id: str = FPath(...)):
-    """Returns ALL 299+ records for a dataset without a truncation limit."""
-    rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
-    if not rows and str(dataset_id).startswith("ds_syn_"):
-        source_meta = next(
-            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
-        )
-        source_id = (
-            source_meta.get("source_dataset_id", "ds_001")
-            if source_meta
-            else "ds_001"
-        )
-        rows = DATASET_SAMPLES_STORE.get(source_id, [])
-
-    if not rows:
-        raise HTTPException(
-            status_code=404, detail=f"Dataset '{dataset_id}' has no records."
-        )
-
-    return {
-        "dataset_id": dataset_id,
-        "total_records": len(rows),
-        "records": rows,
-        "rows": rows,
-        "data": rows,
-    }
-
-
 @router.get("/{dataset_id}/export/csv")
 async def export_dataset_csv(dataset_id: str = FPath(...)):
-    """Streams the full 299+ dataset rows as a downloadable CSV file."""
+    """
+    Streams the full dataset rows as CSV with formatted filename:
+    e.g. 'synthetic_15%_heart.csv' or 'heart.csv'
+    """
     rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
+    source_meta = next(
+        (d for d in DATASETS_STORE if str(d.get("id")) == str(dataset_id)), None
+    )
+
     if not rows and str(dataset_id).startswith("ds_syn_"):
-        source_meta = next(
-            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
-        )
         source_id = (
             source_meta.get("source_dataset_id", "ds_001")
             if source_meta
@@ -723,6 +726,9 @@ async def export_dataset_csv(dataset_id: str = FPath(...)):
             status_code=404,
             detail=f"Dataset '{dataset_id}' has no records to export.",
         )
+
+    meta = source_meta or {"id": dataset_id, "name": f"{dataset_id}.csv"}
+    filename = format_export_filename(meta, ext="csv")
 
     df = pd.DataFrame(rows)
     stream = io.StringIO()
@@ -732,19 +738,23 @@ async def export_dataset_csv(dataset_id: str = FPath(...)):
         content=stream.getvalue(),
         media_type="text/csv",
         headers={
-            "Content-Disposition": f'attachment; filename="{dataset_id}.csv"'
+            "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
 
 
 @router.get("/{dataset_id}/export/json")
 async def export_dataset_json(dataset_id: str = FPath(...)):
-    """Streams the full 299+ dataset rows as a formatted JSON file."""
+    """
+    Streams the full dataset rows as JSON with formatted filename:
+    e.g. 'synthetic_15%_heart.json' or 'heart.json'
+    """
     rows = DATASET_SAMPLES_STORE.get(str(dataset_id), [])
+    source_meta = next(
+        (d for d in DATASETS_STORE if str(d.get("id")) == str(dataset_id)), None
+    )
+
     if not rows and str(dataset_id).startswith("ds_syn_"):
-        source_meta = next(
-            (d for d in DATASETS_STORE if str(d["id"]) == str(dataset_id)), None
-        )
         source_id = (
             source_meta.get("source_dataset_id", "ds_001")
             if source_meta
@@ -758,8 +768,12 @@ async def export_dataset_json(dataset_id: str = FPath(...)):
             detail=f"Dataset '{dataset_id}' has no records to export.",
         )
 
+    meta = source_meta or {"id": dataset_id, "name": f"{dataset_id}.json"}
+    filename = format_export_filename(meta, ext="json")
+
     payload = {
         "dataset_id": dataset_id,
+        "dataset_name": filename,
         "total_records": len(rows),
         "records": rows,
     }
@@ -769,7 +783,7 @@ async def export_dataset_json(dataset_id: str = FPath(...)):
         content=json_str,
         media_type="application/json",
         headers={
-            "Content-Disposition": f'attachment; filename="{dataset_id}.json"'
+            "Content-Disposition": f'attachment; filename="{filename}"'
         },
     )
 
@@ -791,14 +805,17 @@ async def patch_dataset_flags(
 ):
     for ds in DATASETS_STORE:
         if str(ds["id"]) == str(dataset_id):
+            for k, v in flags.items():
+                ds[k] = v
             ds["flags"] = {**(ds.get("flags") or {}), **flags}
             save_persisted_storage()
             return {
                 "dataset_id": dataset_id,
                 "flags": ds["flags"],
+                "excluded": ds.get("excluded", False),
+                "hidden": ds.get("hidden", False),
                 "status": "updated",
             }
     raise HTTPException(
         status_code=404, detail=f"Dataset '{dataset_id}' not found."
     )
-

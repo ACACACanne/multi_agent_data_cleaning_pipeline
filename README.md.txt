@@ -6,7 +6,7 @@
 - Optional: Miniconda if you prefer conda environments
 
 ## Backend setup (PowerShell)
-cd datacleaner\backend
+cd backend
 
 # create a Windows venv using the installed Python
 python -m venv .venv
