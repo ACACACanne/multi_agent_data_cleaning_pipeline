@@ -4,7 +4,11 @@
  * Central HTTP client with endpoint routing, error formatting, and token handling.
  */
 
-const BASE = import.meta.env?.VITE_API_URL || "http://localhost:8000";
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://multi-agent-data-cleaning-pipeline.onrender.com"
+    : "http://localhost:8000");
 
 function formatErrorDetail(detail) {
   if (!detail) return "Unknown server error";
