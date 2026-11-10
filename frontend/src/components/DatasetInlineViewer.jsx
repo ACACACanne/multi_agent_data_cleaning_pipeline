@@ -10,7 +10,7 @@ import { fetchDatasetRows } from "../services/api";
  * - datasetId: id of dataset to show
  * - initialPageSize: default rows per page
  */
-export default function DatasetInLineViewer({
+export default function DatasetInlineViewer({
   datasetId,
   initialPageSize = 5,
 }) {
