@@ -7,7 +7,7 @@ import {
   updateDatasetFlags,
   deleteDataset,
 } from "../services/api";
-import DatasetInlineViewer from "./DatasetInLineViewer";
+import DatasetInlineViewer from "./DatasetInlineViewer";
 
 export default function DatasetList({
   datasets = [],
