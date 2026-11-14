@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "https://multi-agent-data-cleaning-pipeline.onrender.com"
+      "destination": "https://multi-agent-data-cleaning-pipeline.onrender.com/api/$1"
     },
     {
       "source": "/(.*)",
