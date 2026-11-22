@@ -2,28 +2,40 @@
 /**
  * Centralized axios client for the frontend.
  *
- * - Reads Vite env vars VITE_API_BASE and VITE_API_KEY.
+ * - Reads Vite env var VITE_API_URL with sensible dev/prod fallbacks.
+ * - Attaches runtime auth token if present in localStorage.
  * - Normalizes responses and errors into a consistent shape:
  *   { status, code, message, details }
- *
- * - Exports:
- *   - client: axios instance for direct requests
- *   - normalizeAxiosError: helper to convert axios errors into normalized shape
- *   - normalizeErrorPayload: helper to normalize arbitrary payloads
  */
 
 import axios from "axios";
 
-const BASE = import.meta.env.VITE_API_BASE || "http://127.0.0.1:8000";
-const API_KEY = import.meta.env.VITE_API_KEY || "";
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://multi-agent-data-cleaning-pipeline.onrender.com"
+    : "http://127.0.0.1:8000");
 
 const client = axios.create({
   baseURL: BASE,
   timeout: 30000,
-  headers: API_KEY ? { "X-API-Key": API_KEY } : {},
 });
 
-// Normalize backend error payloads into a consistent shape
+client.interceptors.request.use((config) => {
+  try {
+    const token =
+      localStorage.getItem("token") ||
+      localStorage.getItem("datara_auth_token");
+    if (token && !config.headers?.Authorization) {
+      config.headers = config.headers || {};
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  } catch {
+    // Ignore storage access errors in restricted contexts
+  }
+  return config;
+});
+
 function normalizeErrorPayload(payload, status) {
   if (!payload) {
     return {
@@ -44,7 +56,6 @@ function normalizeErrorPayload(payload, status) {
   }
 
   if (typeof payload === "object") {
-    // If backend already uses the recommended contract
     if (payload.status || payload.code || payload.message) {
       return {
         status: payload.status || status || 0,
@@ -54,17 +65,29 @@ function normalizeErrorPayload(payload, status) {
       };
     }
 
-    // Common patterns
-    if (payload.detail || payload.message) {
+    if (payload.detail) {
+      const detailMsg = Array.isArray(payload.detail)
+        ? payload.detail
+            .map((d) =>
+              typeof d === "string"
+                ? d
+                : `${Array.isArray(d.loc) ? d.loc[d.loc.length - 1] : "field"}: ${d.msg || "invalid input"}`,
+            )
+            .join(", ")
+        : typeof payload.detail === "object"
+          ? payload.detail.message ||
+            payload.detail.msg ||
+            JSON.stringify(payload.detail)
+          : String(payload.detail);
+
       return {
         status: status || 0,
         code: undefined,
-        message: payload.detail || payload.message,
+        message: detailMsg,
         details: payload,
       };
     }
 
-    // Fallback: stringify
     try {
       return {
         status: status || 0,
@@ -90,7 +113,6 @@ function normalizeErrorPayload(payload, status) {
   };
 }
 
-// Convert axios error into normalized shape
 function normalizeAxiosError(err) {
   if (!err) {
     return {
@@ -101,14 +123,10 @@ function normalizeAxiosError(err) {
     };
   }
 
-  // If server responded
   if (err.response) {
-    const status = err.response.status;
-    const payload = err.response.data;
-    return normalizeErrorPayload(payload, status);
+    return normalizeErrorPayload(err.response.data, err.response.status);
   }
 
-  // Request made but no response
   if (err.request) {
     return {
       status: 0,
@@ -119,7 +137,6 @@ function normalizeAxiosError(err) {
     };
   }
 
-  // Something else happened
   return {
     status: 0,
     code: "REQUEST_ERROR",
@@ -128,7 +145,6 @@ function normalizeAxiosError(err) {
   };
 }
 
-// Response interceptor: attach normalized error to the error object
 client.interceptors.response.use(
   (response) => response,
   (error) => {

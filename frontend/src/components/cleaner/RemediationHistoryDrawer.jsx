@@ -2,17 +2,15 @@
 import React from "react";
 import PropTypes from "prop-types";
 
-/**
- * RemediationHistoryDrawer
- * Side drawer displaying historical agent and manual remediation actions.
- */
 export default function RemediationHistoryDrawer({
   open = false,
+  isOpen = false,
   history = [],
   onClose = () => {},
   onApply = () => {},
 }) {
-  if (!open) return null;
+  const visible = Boolean(open || isOpen);
+  if (!visible) return null;
 
   const historyList = Array.isArray(history) ? history : [];
 
@@ -32,7 +30,6 @@ export default function RemediationHistoryDrawer({
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
         onClick={onClose}
@@ -40,7 +37,6 @@ export default function RemediationHistoryDrawer({
 
       <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
         <div className="w-screen max-w-md bg-brand-dark border-l border-brand-accent/20 shadow-2xl flex flex-col">
-          {/* Header */}
           <div className="p-6 border-b border-brand-accent/10 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-bold text-brand-accent">
@@ -72,7 +68,6 @@ export default function RemediationHistoryDrawer({
             </button>
           </div>
 
-          {/* Body Content */}
           <div className="flex-1 overflow-y-auto p-6 space-y-4">
             {historyList.length === 0 ? (
               <div className="text-center py-12 text-gray-400 text-sm italic">
@@ -132,8 +127,14 @@ export default function RemediationHistoryDrawer({
             )}
           </div>
 
-          {/* Footer */}
-          <div className="p-4 border-t border-brand-accent/10 bg-brand-light/10 flex justify-end">
+          <div className="p-4 border-t border-brand-accent/10 bg-brand-light/10 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => onApply?.()}
+              className="hidden"
+            >
+              Apply
+            </button>
             <button
               type="button"
               onClick={onClose}
@@ -150,6 +151,7 @@ export default function RemediationHistoryDrawer({
 
 RemediationHistoryDrawer.propTypes = {
   open: PropTypes.bool,
+  isOpen: PropTypes.bool,
   history: PropTypes.arrayOf(
     PropTypes.shape({
       id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
