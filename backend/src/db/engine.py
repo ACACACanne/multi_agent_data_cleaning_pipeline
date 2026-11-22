@@ -2,23 +2,37 @@
 """
 Database Engine & Declarative Base Configuration
 Initializes the SQLAlchemy engine, session maker, and declarative Base.
+Supports SQLite locally and PostgreSQL (such as Render Postgres) in production.
 """
 
 import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Read database URL from environment or default to SQLite
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data.db")
+raw_url = os.getenv("DATABASE_URL", "sqlite:///./data.db").strip()
 
-# SQLite requires 'check_same_thread: False' for multi-threaded FastAPI handlers
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+# SQLAlchemy requires 'postgresql://' rather than legacy 'postgres://'
+if raw_url.startswith("postgres://"):
+    DATABASE_URL = raw_url.replace("postgres://", "postgresql://", 1)
+else:
+    DATABASE_URL = raw_url
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    echo=False
-)
+is_sqlite = DATABASE_URL.startswith("sqlite")
+
+if is_sqlite:
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+        echo=False,
+    )
+else:
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        echo=False,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
