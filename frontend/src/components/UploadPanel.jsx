@@ -1,15 +1,8 @@
 // frontend/src/components/UploadPanel.jsx
 import React, { useState } from "react";
+import PropTypes from "prop-types";
 import { client } from "../utils/apiClient";
 import { extractErrorMessage } from "../utils/errorUtils";
-
-/**
- * UploadPanel
- *
- * - Accepts JSON or CSV files.
- * - Shows upload progress, errors, and success callback.
- * - Uses centralized Vite env vars for API base + key.
- */
 
 export default function UploadPanel({ onUploaded }) {
   const [file, setFile] = useState(null);
@@ -21,7 +14,7 @@ export default function UploadPanel({ onUploaded }) {
     setError(null);
     setProgress(0);
 
-    const selected = e.target.files[0];
+    const selected = e.target.files?.[0];
     if (!selected) return;
 
     const name = selected.name.toLowerCase();
@@ -36,7 +29,7 @@ export default function UploadPanel({ onUploaded }) {
 
   const handleUpload = async () => {
     if (!file) {
-      setError("Please select a file first.");
+      setError("Please select a CSV or JSON file first.");
       return;
     }
 
@@ -46,18 +39,14 @@ export default function UploadPanel({ onUploaded }) {
       setProgress(0);
 
       const formData = new FormData();
-      formData.append("file", file); // must match backend field name
+      formData.append("file", file);
 
       const response = await client.post("/api/upload", formData, {
-        // Do NOT set Content-Type manually when sending FormData.
         onUploadProgress: (evt) => {
           if (evt.total) {
             const percent = Math.round((evt.loaded * 100) / evt.total);
             setProgress(percent);
           }
-        },
-        headers: {
-          // Let axios set the correct Content-Type for FormData
         },
       });
 
@@ -113,18 +102,22 @@ export default function UploadPanel({ onUploaded }) {
         {error && <p className="text-red-400 text-sm font-medium">{error}</p>}
 
         <button
+          type="button"
           onClick={handleUpload}
           disabled={uploading}
-          className={`w-full py-2 rounded-lg font-semibold transition
-            ${
-              uploading
-                ? "bg-gray-600 cursor-not-allowed"
-                : "bg-brand-accent text-black hover:bg-blue-300"
-            }`}
+          className={`w-full py-2 rounded-lg font-semibold transition ${
+            uploading
+              ? "bg-gray-600 cursor-not-allowed"
+              : "bg-brand-accent text-black hover:bg-blue-300"
+          }`}
         >
-          {uploading ? `Uploading… ${progress}%` : "Upload"}
+          {uploading ? `Uploading… ${progress}%` : "Upload Dataset"}
         </button>
       </div>
     </div>
   );
 }
+
+UploadPanel.propTypes = {
+  onUploaded: PropTypes.func,
+};

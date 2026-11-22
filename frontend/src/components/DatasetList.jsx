@@ -3,11 +3,16 @@ import React, { useEffect, useState, useRef } from "react";
 import PropTypes from "prop-types";
 import {
   fetchDatasetSample,
-  injectSyntheticErrors,
   updateDatasetFlags,
   deleteDataset,
 } from "../services/api";
 import DatasetInlineViewer from "./DatasetInlineViewer";
+
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://multi-agent-data-cleaning-pipeline.onrender.com"
+    : "http://127.0.0.1:8000");
 
 export default function DatasetList({
   datasets = [],
@@ -19,8 +24,6 @@ export default function DatasetList({
   const [loadingSamples, setLoadingSamples] = useState({});
   const [error, setError] = useState(null);
   const [openViewer, setOpenViewer] = useState({});
-  const [injectPercent, setInjectPercent] = useState({});
-  const [injectingId, setInjectingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
   const mountedRef = useRef(true);
@@ -31,6 +34,7 @@ export default function DatasetList({
     return () => {
       mountedRef.current = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasets]);
 
   const loadSamplesForDatasets = async (list) => {
@@ -69,39 +73,15 @@ export default function DatasetList({
     setOpenViewer((s) => ({ ...s, [datasetId]: !s[datasetId] }));
   };
 
-  const injectErrors = async (datasetId) => {
-    const rawVal = injectPercent[datasetId];
-    const pct = Number.isFinite(Number(rawVal))
-      ? Math.min(50, Math.max(1, Number(rawVal)))
-      : 15;
-
-    try {
-      setError(null);
-      setInjectingId(datasetId);
-      const res = await injectSyntheticErrors(datasetId, pct);
-      const newId =
-        res?.new_dataset_id || res?.dataset_id || res?.dataset?.id || res?.id;
-      if (onRefresh) await onRefresh();
-      if (newId) {
-        await loadSample(newId);
-        if (onSelectDataset) onSelectDataset(newId);
-      }
-      await loadSample(datasetId);
-    } catch (err) {
-      setError(err.message || String(err));
-    } finally {
-      setInjectingId(null);
-    }
-  };
-
   const handleDeleteDataset = async (datasetId, datasetName) => {
     const name = datasetName || datasetId;
     if (
       !window.confirm(
         `Are you sure you want to delete "${name}"?\nThis will permanently remove it from storage.`,
       )
-    )
+    ) {
       return;
+    }
 
     try {
       setError(null);
@@ -147,7 +127,11 @@ export default function DatasetList({
   const triggerExport = (e, datasetId, format) => {
     e.preventDefault();
     e.stopPropagation();
-    window.open(`/api/datasets/${datasetId}/export/${format}`, "_blank");
+    window.open(
+      `${API_BASE}/api/datasets/${encodeURIComponent(datasetId)}/export/${format}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   return (
@@ -194,33 +178,14 @@ export default function DatasetList({
       <div className="space-y-3">
         {datasets.length === 0 ? (
           <div className="bg-brand-light p-6 rounded-xl border border-brand-accent/10 text-gray-400 italic text-center text-xs">
-            No datasets available in storage. Upload a dataset or inject errors
-            to populate.
+            No datasets available. Upload a CSV or JSON file above to begin.
           </div>
         ) : (
           datasets.map((d) => {
-            const isCleaned =
-              d.name?.includes("[Cleaned]") ||
-              String(d.id).startsWith("ds_clean_") ||
-              Boolean(d.flags?.is_cleaned);
-
-            const isSynthetic =
-              !isCleaned &&
-              (Boolean(d.synthetic_injected) ||
-                String(d.id).startsWith("ds_syn_") ||
-                d.name?.includes("[Synthetic") ||
-                d.name?.includes("[injected_"));
-
             const isExcluded = Boolean(d.excluded || d.flags?.excluded);
             const isHidden = Boolean(d.hidden || d.flags?.hidden);
-
-            const rowCount = d.rows_count ?? d.rows ?? 299;
+            const rowCount = d.rows_count ?? d.rows ?? 0;
             const anomaliesCount = d.anomalies_count ?? d.anomalies ?? 0;
-            const injectionBadgePct =
-              d.injected_rate ??
-              (d.error_rate && d.error_rate <= 1
-                ? Math.round(d.error_rate * 100)
-                : d.error_rate);
 
             return (
               <div
@@ -229,11 +194,7 @@ export default function DatasetList({
                 className={`p-4 rounded-xl border transition cursor-pointer ${
                   isExcluded
                     ? "bg-gray-900/40 border-gray-700/50 opacity-75"
-                    : isCleaned
-                      ? "bg-emerald-950/20 border-emerald-500/40 hover:border-emerald-400"
-                      : isSynthetic
-                        ? "bg-amber-950/20 border-amber-500/30 hover:border-amber-400/50"
-                        : "bg-brand-dark/40 border-brand-accent/20 hover:border-brand-accent/40"
+                    : "bg-brand-dark/40 border-brand-accent/20 hover:border-brand-accent/40"
                 }`}
               >
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
@@ -243,36 +204,6 @@ export default function DatasetList({
                         {d.name ?? d.id}
                       </span>
 
-                      {/* Cleaned Badge */}
-                      {isCleaned && (
-                        <span
-                          style={{
-                            backgroundColor: "rgba(16, 185, 129, 0.15)",
-                            color: "#34d399",
-                            border: "1px solid rgba(52, 211, 153, 0.4)",
-                          }}
-                          className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
-                        >
-                          CLEANED &amp; VERIFIED (99.4%)
-                        </span>
-                      )}
-
-                      {/* Synthetic Injected Badge */}
-                      {isSynthetic && (
-                        <span
-                          style={{
-                            backgroundColor: "rgba(245, 158, 11, 0.15)",
-                            color: "#fbbf24",
-                            border: "1px solid rgba(245, 158, 11, 0.4)",
-                          }}
-                          className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide"
-                        >
-                          SYNTHETIC INJECTED{" "}
-                          {injectionBadgePct ? `(${injectionBadgePct}%)` : ""}
-                        </span>
-                      )}
-
-                      {/* Excluded Indicator Badge */}
                       {isExcluded && (
                         <span
                           style={{
@@ -291,14 +222,11 @@ export default function DatasetList({
                       <span className="font-mono text-brand-accent font-semibold">
                         {d.id}
                       </span>{" "}
-                      &bull; {rowCount.toLocaleString()} rows
-                      {anomaliesCount > 0
-                        ? ` &bull; ${anomaliesCount} anomalies`
-                        : " &bull; 0 anomalies"}
+                      &bull; {Number(rowCount).toLocaleString()} rows &bull;{" "}
+                      {anomaliesCount} anomalies
                     </div>
                   </div>
 
-                  {/* Actions Button Group with High-Contrast Styles */}
                   <div
                     className="flex flex-wrap items-center gap-1.5"
                     onClick={(e) => e.stopPropagation()}
@@ -344,7 +272,6 @@ export default function DatasetList({
                       Open full viewer
                     </button>
 
-                    {/* CSV Button */}
                     <button
                       type="button"
                       onClick={(e) => triggerExport(e, d.id, "csv")}
@@ -354,12 +281,10 @@ export default function DatasetList({
                         border: "1px solid rgba(52, 211, 153, 0.4)",
                       }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg hover:bg-emerald-800 transition cursor-pointer shadow-sm"
-                      title={`Download full ${rowCount} rows as CSV`}
                     >
                       ↓CSV
                     </button>
 
-                    {/* JSON Button */}
                     <button
                       type="button"
                       onClick={(e) => triggerExport(e, d.id, "json")}
@@ -369,31 +294,26 @@ export default function DatasetList({
                         border: "1px solid rgba(165, 180, 252, 0.4)",
                       }}
                       className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-lg hover:bg-indigo-900 transition cursor-pointer shadow-sm"
-                      title={`Download full ${rowCount} rows as JSON`}
                     >
                       ↓JSON
                     </button>
 
-                    {/* Delete Custom/Synthetic/Cleaned Dataset */}
-                    {(isSynthetic || isCleaned) && (
-                      <button
-                        type="button"
-                        disabled={deletingId === d.id}
-                        onClick={() => handleDeleteDataset(d.id, d.name)}
-                        style={{
-                          backgroundColor: "rgba(136, 19, 55, 0.3)",
-                          color: "#fda4af",
-                          border: "1px solid rgba(244, 63, 94, 0.4)",
-                        }}
-                        className="px-2.5 py-1 text-xs font-semibold rounded-lg hover:bg-rose-950 transition cursor-pointer disabled:opacity-50"
-                      >
-                        {deletingId === d.id ? "..." : "Delete"}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      disabled={deletingId === d.id}
+                      onClick={() => handleDeleteDataset(d.id, d.name)}
+                      style={{
+                        backgroundColor: "rgba(136, 19, 55, 0.3)",
+                        color: "#fda4af",
+                        border: "1px solid rgba(244, 63, 94, 0.4)",
+                      }}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg hover:bg-rose-950 transition cursor-pointer disabled:opacity-50"
+                    >
+                      {deletingId === d.id ? "..." : "Delete"}
+                    </button>
                   </div>
                 </div>
 
-                {/* Two-Column Sample Inspector */}
                 <div
                   className="grid grid-cols-1 md:grid-cols-2 gap-3"
                   onClick={(e) => e.stopPropagation()}
@@ -411,13 +331,7 @@ export default function DatasetList({
                         {samples[d.id].map((row, rIdx) => (
                           <div
                             key={row.id || rIdx}
-                            className={`p-2 rounded font-mono border ${
-                              row._data_status === "SYNTHETIC_ANOMALY"
-                                ? "bg-amber-950/40 border-amber-500/40 text-amber-200"
-                                : isCleaned
-                                  ? "bg-emerald-950/30 border-emerald-500/30 text-emerald-200"
-                                  : "bg-brand-dark border-brand-accent/10 text-gray-200"
-                            }`}
+                            className="p-2 rounded font-mono border bg-brand-dark border-brand-accent/10 text-gray-200"
                           >
                             <pre className="whitespace-pre-wrap text-[11px] m-0">
                               {JSON.stringify(row, null, 2)}
@@ -454,56 +368,6 @@ export default function DatasetList({
                   </div>
                 </div>
 
-                {/* Synthetic Error Injection (Only for Non-Cleaned Datasets) */}
-                {!isCleaned && (
-                  <div
-                    className="mt-3 bg-brand-dark/40 p-3 rounded-lg border border-brand-accent/15 flex items-center gap-3"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <span className="text-xs text-gray-300 font-semibold">
-                      Inject Noise:
-                    </span>
-                    <input
-                      type="number"
-                      min="1"
-                      max="50"
-                      value={injectPercent[d.id] ?? 15}
-                      onChange={(e) =>
-                        setInjectPercent((s) => ({
-                          ...s,
-                          [d.id]: Math.min(
-                            50,
-                            Math.max(1, Number(e.target.value) || 1),
-                          ),
-                        }))
-                      }
-                      style={{
-                        backgroundColor: "#0b1220",
-                        color: "#ffffff",
-                        border: "1px solid rgba(96, 165, 250, 0.3)",
-                      }}
-                      className="w-16 px-2 py-1 rounded text-xs text-center font-bold"
-                    />
-                    <span className="text-xs text-gray-400">%</span>
-                    <button
-                      type="button"
-                      disabled={injectingId === d.id}
-                      onClick={() => injectErrors(d.id)}
-                      style={{
-                        backgroundColor: "#60a5fa",
-                        color: "#0b1220",
-                        border: "none",
-                      }}
-                      className="px-3 py-1 rounded-lg text-xs font-bold hover:bg-blue-300 transition disabled:opacity-50 cursor-pointer"
-                    >
-                      {injectingId === d.id
-                        ? "Injecting..."
-                        : "Inject & Save Dataset"}
-                    </button>
-                  </div>
-                )}
-
-                {/* Dataset Configuration Flags (Exclusion from Cleaner & Visibility) */}
                 <div
                   className="mt-3 flex flex-wrap items-center gap-4 text-xs text-gray-300 pt-2.5 border-t border-brand-accent/10"
                   onClick={(e) => e.stopPropagation()}

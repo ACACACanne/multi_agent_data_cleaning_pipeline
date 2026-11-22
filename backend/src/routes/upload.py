@@ -1,7 +1,7 @@
 #backend/src/routes/upload.py
 """
-Upload Route Controller
-Handles dataset ingestion (CSV & JSON), row parsing, and dataset registry.
+Upload Route Controller (Production)
+Handles dataset ingestion (CSV & JSON), schema dimension detection, and dataset registry.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
@@ -112,6 +112,7 @@ async def upload_dataset_file(
             "status": "READY",
             "anomalies_count": 0,
             "anomalies": 0,
+            "synthetic_injected": False,
             "flags": {
                 "is_gold_standard": False,
                 "anonymized": True,
