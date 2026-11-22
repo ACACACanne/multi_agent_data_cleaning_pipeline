@@ -1,13 +1,10 @@
 # backend/src/models/experiment.py
 from __future__ import annotations
-from typing import Optional, Dict, Any, TYPE_CHECKING
+from typing import Optional, Dict, Any
 from datetime import datetime
 
-from sqlmodel import SQLModel, Field, Relationship
+from sqlmodel import SQLModel, Field
 from sqlalchemy import Column, JSON
-
-if TYPE_CHECKING:
-    from src.models.dataset import Dataset
 
 
 # -------------------------------------------------------------
@@ -32,8 +29,6 @@ class Experiment(SQLModel, table=True):
         sa_column=Column(JSON),
     )
 
-    dataset: Optional["Dataset"] = Relationship(back_populates="experiments")
-
 
 # -------------------------------------------------------------
 # 2. PYDANTIC / SQLMODEL SCHEMAS FOR API ROUTES
@@ -53,4 +48,3 @@ class ExperimentRead(SQLModel):
     name: str
     config: Dict[str, Any] = {}
     results: Dict[str, Any] = {}
-

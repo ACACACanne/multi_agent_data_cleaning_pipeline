@@ -1,14 +1,16 @@
 # backend/src/storage/synthetic_errors.py
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from src.utils.file_io import read_json, write_json
 
-BASE_DIR = "backend/storage/synthetic_errors"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BASE_DIR = BACKEND_ROOT / "storage" / "synthetic_errors"
 
 
-def _path(dataset_id: int):
-    return f"{BASE_DIR}/dataset_{dataset_id}.json"
+def _path(dataset_id: int) -> str:
+    return str(BASE_DIR / f"dataset_{dataset_id}.json")
 
 
 def _ensure_dir():

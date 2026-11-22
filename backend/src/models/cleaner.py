@@ -11,7 +11,7 @@ from src.models.dataset import Dataset
 
 class CleanerMetrics(SQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
-    dataset_id: int = Field(foreign_key="dataset.id", unique=True, index=True)
+    dataset_id: int = Field(foreign_key="datasets.id", unique=True, index=True)
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
