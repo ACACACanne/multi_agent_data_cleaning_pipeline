@@ -1,10 +1,11 @@
 #backend/src/routes/upload.py
 """
 Upload Route Controller (Production)
-Handles dataset ingestion (CSV & JSON), schema dimension detection, and dataset registry.
+Handles dataset ingestion (CSV & JSON), row parsing, dataset registry,
+and database record persistence.
 """
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from typing import Dict, Any, Optional, List
 import io
 import csv
@@ -13,6 +14,10 @@ import uuid
 import datetime
 import logging
 
+from sqlmodel import Session
+
+from src.db.session import get_session
+from src.models.record import Record
 from src.routes.datasets import (
     DATASETS_STORE,
     DATASET_SAMPLES_STORE,
@@ -31,6 +36,35 @@ def format_file_size(size_bytes: int) -> str:
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
 
 
+def _persist_records_to_db(
+    session: Session, dataset_id: str, rows: List[Dict[str, Any]]
+) -> None:
+    """Persists parsed dataset rows into the records table when available."""
+    if not rows:
+        return
+
+    try:
+        for idx, row in enumerate(rows):
+            record_id = f"{dataset_id}_r{idx + 1}_{uuid.uuid4().hex[:6]}"
+            patient_val = (
+                row.get("patient_id")
+                or row.get("patient_nbr")
+                or row.get("id")
+            )
+            db_record = Record(
+                id=record_id,
+                dataset_id=str(dataset_id),
+                patient_id=str(patient_val) if patient_val is not None else None,
+                row_data=row,
+                data_status=str(row.get("data_status") or "VALID"),
+            )
+            session.add(db_record)
+        session.commit()
+    except Exception as db_err:
+        session.rollback()
+        logger.warning(f"Database record persistence notice for {dataset_id}: {db_err}")
+
+
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any])
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any], include_in_schema=False)
 @router.post("/upload", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any], include_in_schema=False)
@@ -38,9 +72,11 @@ def format_file_size(size_bytes: int) -> str:
 async def upload_dataset_file(
     file: UploadFile = File(..., description="CSV or JSON dataset file"),
     dataset_name: Optional[str] = Form(None),
+    session: Session = Depends(get_session),
 ):
     """
-    Accepts CSV or JSON file uploads, parses rows/columns, and registers the dataset.
+    Accepts CSV or JSON file uploads, parses rows/columns, registers the dataset,
+    and persists rows to storage and database.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -124,6 +160,7 @@ async def upload_dataset_file(
         DATASETS_STORE.insert(0, new_dataset)
         DATASET_SAMPLES_STORE[dataset_id] = parsed_rows
         save_persisted_storage()
+        _persist_records_to_db(session, dataset_id, parsed_rows)
 
         logger.info(
             f"Dataset successfully uploaded: {display_name} ({dataset_id}) with {rows_count} rows."
