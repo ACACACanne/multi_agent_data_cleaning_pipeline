@@ -24,4 +24,3 @@ class Evaluation(SQLModel, table=True):  # type: ignore
     )
 
     dataset: Optional[Dataset] = Relationship(back_populates="evaluations")
-

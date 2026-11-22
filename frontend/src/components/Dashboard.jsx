@@ -12,7 +12,6 @@ import RecordsTable from "./RecordsTable";
 import DatasetViewer from "./DatasetViewer";
 import EvaluationPanel from "./EvaluationPanel";
 
-// RemediRa Pro Cleaner Pipeline Components
 import CleanerAgentCard from "./cleaner/CleanerAgentCard";
 import BeforeAfterComparisonPanel from "./cleaner/BeforeAfterComparisonPanel";
 import TrajectoryGraph from "./cleaner/TrajectoryGraph";
@@ -48,7 +47,7 @@ export default function Dashboard() {
 
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerDatasetId, setViewerDatasetId] = useState(null);
-  const [activeDataTab, setActiveDataTab] = useState("registry"); // 'registry' | 'preview'
+  const [activeDataTab, setActiveDataTab] = useState("registry");
 
   const [selectedDataset, setSelectedDataset] = useState("all");
   const [loadingCleaner, setLoadingCleaner] = useState(false);
@@ -65,8 +64,6 @@ export default function Dashboard() {
     setViewerDatasetId(null);
   };
 
-  // Strictly filter visible datasets: only active baseline and synthetic input datasets.
-  // Cleaned outputs ([Cleaned] / ds_clean_) and hidden datasets are completely excluded.
   const visibleDatasets = (datasets || []).filter(
     (d) =>
       !d.hidden &&
@@ -84,7 +81,6 @@ export default function Dashboard() {
 
   const effectiveDatasetId =
     selectedDataset === "all" ||
-    selectedDataset === "synthetic_all" ||
     !selectedDataset ||
     !visibleDatasets.some((d) => String(d.id) === String(selectedDataset))
       ? visibleDatasets[0]?.id || "ds_001"
@@ -129,7 +125,6 @@ export default function Dashboard() {
     try {
       const data = await postRunAgents(dsId, ["cleaner"]);
 
-      // Extract metrics and preserve download manifests for CleanerAgentCard
       const exportsList =
         data?.cleaned_exports || data?.results?.cleaner?.cleaned_exports || [];
       const cleanerResult =
@@ -141,11 +136,10 @@ export default function Dashboard() {
       });
 
       const hist = await fetchRemediationHistory(
-        dsId === "all" || dsId === "synthetic_all" ? undefined : dsId,
+        dsId === "all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
 
-      // Refresh baseline and synthetic input datasets telemetry
       await refreshAll();
     } catch (err) {
       console.error("runCleaner error:", err);
@@ -180,7 +174,7 @@ export default function Dashboard() {
       });
 
       const hist = await fetchRemediationHistory(
-        dsId === "all" || dsId === "synthetic_all" ? undefined : dsId,
+        dsId === "all" ? undefined : dsId,
       );
       setRemediationHistory(Array.isArray(hist) ? hist : []);
 
@@ -200,17 +194,14 @@ export default function Dashboard() {
       manual: [],
     };
 
-  const isSynthetic =
-    String(selectedDataset).startsWith("ds_syn_") ||
-    String(effectiveDatasetId).startsWith("ds_syn_");
   const baselineQuality =
     cleanerMetrics?.baseline_quality ??
     metrics?.datasets?.[effectiveDatasetId]?.quality_score ??
-    (isSynthetic ? 0.742 : 0.885);
+    0.885;
   const baselineIssues =
     cleanerMetrics?.issues ??
     metrics?.datasets?.[effectiveDatasetId]?.issues ??
-    (isSynthetic ? 32 : 14);
+    0;
   const cleanedQuality = cleanerMetrics?.cleaned_quality ?? 0.994;
   const cleanedIssues = cleanerMetrics?.issues ?? 0;
 
@@ -231,18 +222,13 @@ export default function Dashboard() {
 
   return (
     <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-12">
-      {/* Ingestion Upload Panel */}
       <section aria-label="Upload Dataset">
         <UploadPanel onUploaded={() => refreshAll()} />
       </section>
 
-      {/* Main 2-Column Responsive Operational Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-        {/* LEFT COLUMN: Data Operations & Telemetry (2 Cols Wide) */}
         <div className="lg:col-span-2 space-y-6">
-          {/* COMPACT SLIDING DATASET & SAMPLES HUB */}
           <div className="bg-brand-light rounded-xl border border-brand-accent/20 shadow-md overflow-hidden">
-            {/* Sliding Tab Header with High-Contrast Dark Styling */}
             <div
               style={{
                 backgroundColor: "#0b1220",
@@ -251,7 +237,6 @@ export default function Dashboard() {
               className="p-3 border-b flex items-center justify-between gap-2"
             >
               <div className="flex items-center gap-2">
-                {/* Dataset Registry Tab */}
                 <button
                   type="button"
                   onClick={() => setActiveDataTab("registry")}
@@ -269,7 +254,6 @@ export default function Dashboard() {
                   Dataset Registry ({visibleDatasets.length})
                 </button>
 
-                {/* Quick Record Samples Tab */}
                 <button
                   type="button"
                   onClick={() => setActiveDataTab("preview")}
@@ -288,7 +272,6 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              {/* Expand Modal Action Button */}
               <button
                 type="button"
                 onClick={() => openViewerModal(effectiveDatasetId)}
@@ -303,7 +286,6 @@ export default function Dashboard() {
               </button>
             </div>
 
-            {/* Sliding / Scrollable Panel Content */}
             <div className="p-3.5 max-h-[340px] overflow-y-auto overflow-x-hidden space-y-3">
               {activeDataTab === "registry" ? (
                 <DatasetList
@@ -338,7 +320,6 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Cleaner Agent Control Card (Hosts Post-Cleaning Download Offer Banner) */}
           <CleanerAgentCard
             datasets={visibleDatasets}
             datasetId={selectedDataset}
@@ -349,31 +330,23 @@ export default function Dashboard() {
             onRunAllAgents={runAllAgents}
           />
 
-          {/* Anomaly Risk Map */}
           <DatasetRiskMap
             risk={
               metrics?.risk?.[effectiveDatasetId] || {
-                level: isSynthetic ? "high" : "low",
-                factors: isSynthetic
-                  ? [
-                      "Synthetic noise injected",
-                      "Outliers and invariant shifts detected",
-                    ]
-                  : ["Baseline verified", "Contract assertions passing"],
+                level: "low",
+                factors: ["Dataset verified", "Contract assertions passing"],
               }
             }
           />
 
-          {/* Quality Forecast Chart */}
           <QualityForecastChart
             forecast={
               metrics?.forecast?.[effectiveDatasetId] || [
-                0.92, 0.89, 0.85, 0.81,
+                0.95, 0.94, 0.93, 0.92,
               ]
             }
           />
 
-          {/* Side-by-Side Quality Before & After */}
           <BeforeAfterComparisonPanel
             baselineQuality={baselineQuality}
             baselineIssues={baselineIssues}
@@ -381,19 +354,16 @@ export default function Dashboard() {
             cleanedIssues={cleanedIssues}
           />
 
-          {/* Trajectory Curves */}
           <TrajectoryGraph
             datasetId={effectiveDatasetId}
             trajectories={selectedTrajectories}
           />
 
-          {/* Action Suggestions */}
           <FixSuggestionsPanel
             suggestions={cleanerMetrics?.suggestions || []}
             onApply={() => runCleaner()}
           />
 
-          {/* Decision Timeline */}
           <AgentReasoningTimeline
             reasoning={
               metrics?.reasoning?.[effectiveDatasetId] || [
@@ -424,7 +394,6 @@ export default function Dashboard() {
             }
           />
 
-          {/* Cleaner vs. Manual Comparison */}
           <ComparisonCleanerManual
             cleanerMetrics={cleanerMetrics}
             manualMetrics={
@@ -434,7 +403,6 @@ export default function Dashboard() {
             }
           />
 
-          {/* Drawer & Health Badge Controls */}
           <div className="flex items-center justify-between pt-2">
             <button
               type="button"
@@ -460,7 +428,6 @@ export default function Dashboard() {
           />
         </div>
 
-        {/* RIGHT COLUMN: Telemetry, Benchmarking, Experiments (1 Col Wide) */}
         <div className="space-y-6">
           <MetricsPanel
             metrics={metrics}
@@ -474,7 +441,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Real-Time System Run Log */}
       <section aria-label="System Run Log" className="mt-8">
         <h3 className="text-base text-gray-200 mb-2 font-bold">
           System Run Log
@@ -496,7 +462,6 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Dataset Viewer Modal */}
       {viewerOpen && viewerDatasetId && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6">
           <div
