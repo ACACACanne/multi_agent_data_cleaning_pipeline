@@ -87,6 +87,20 @@ export default function Dashboard() {
       ? visibleDatasets[0]?.id || "ds_001"
       : selectedDataset;
 
+  const refreshHistory = useCallback(
+    async (targetId = selectedDataset) => {
+      try {
+        const dsParam =
+          targetId && String(targetId) !== "all" ? String(targetId) : undefined;
+        const hist = await fetchRemediationHistory(dsParam);
+        setRemediationHistory(Array.isArray(hist) ? hist : []);
+      } catch (err) {
+        console.error("Failed to refresh remediation history:", err);
+      }
+    },
+    [selectedDataset, setRemediationHistory],
+  );
+
   const loadCleanerData = useCallback(
     async (targetId) => {
       try {
@@ -116,6 +130,11 @@ export default function Dashboard() {
     loadCleanerData(selectedDataset);
   }, [selectedDataset, loadCleanerData]);
 
+  const handleOpenHistoryDrawer = async () => {
+    await refreshHistory(selectedDataset);
+    setShowHistoryDrawer(true);
+  };
+
   async function runCleaner() {
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
@@ -136,12 +155,7 @@ export default function Dashboard() {
         cleaned_exports: exportsList,
       });
 
-      const hist = await fetchRemediationHistory(
-        dsId === "all" ? undefined : dsId,
-      );
-      setRemediationHistory(Array.isArray(hist) ? hist : []);
-
-      await refreshAll();
+      await Promise.all([refreshHistory(dsId), refreshAll()]);
     } catch (err) {
       console.error("runCleaner error:", err);
     } finally {
@@ -174,12 +188,7 @@ export default function Dashboard() {
         cleaned_exports: exportsList,
       });
 
-      const hist = await fetchRemediationHistory(
-        dsId === "all" ? undefined : dsId,
-      );
-      setRemediationHistory(Array.isArray(hist) ? hist : []);
-
-      await refreshAll();
+      await Promise.all([refreshHistory(dsId), refreshAll()]);
     } catch (err) {
       console.error("runAllAgents error:", err);
     } finally {
@@ -234,7 +243,7 @@ export default function Dashboard() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setShowHistoryDrawer(true)}
+            onClick={handleOpenHistoryDrawer}
             aria-label="View remediation history"
             style={{
               backgroundColor: "#0b1220",
@@ -264,7 +273,12 @@ export default function Dashboard() {
       </div>
 
       <section aria-label="Upload Dataset">
-        <UploadPanel onUploaded={() => refreshAll()} />
+        <UploadPanel
+          onUploaded={async () => {
+            await refreshAll();
+            await refreshHistory(selectedDataset);
+          }}
+        />
       </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
@@ -385,9 +399,9 @@ export default function Dashboard() {
                     {
                       step: 2,
                       agent: "Remediator Agent",
-                      action: "Contextual imputation & invariant repair",
+                      action: "Cohort-aware imputation & invariant repair",
                       finding:
-                        "Applied deterministic rules, KNN imputation, and numerical outlier bounds.",
+                        "Applied cohort median imputation, deterministic bounds, and chronological checks.",
                       confidence: 0.99,
                     },
                     {
@@ -395,7 +409,7 @@ export default function Dashboard() {
                       agent: "Validator Agent",
                       action: "Data contract verification",
                       finding:
-                        "All records conform to active Pydantic v2 validation contracts.",
+                        "Verified cleaned records against active validation contracts.",
                       confidence: 1.0,
                     },
                   ]
