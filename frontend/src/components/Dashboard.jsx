@@ -6,6 +6,7 @@ import UploadPanel from "./UploadPanel";
 import DatasetList from "./DatasetList";
 import MetricsPanel from "./MetricsPanel";
 import BaselineMetricsPanel from "./BaselineMetricsPanel";
+import AgentMetrics from "./AgentMetrics";
 import ExperimentRunner from "./ExperimentRunner";
 import SystemNotes from "./SystemNotes";
 import RecordsTable from "./RecordsTable";
@@ -463,11 +464,20 @@ export default function Dashboard() {
             onRefresh={refreshAll}
           />
 
+          <AgentMetrics hasDatasets={hasDatasets} datasetId={selectedDataset} />
+
           {showDiagnostics && (
             <>
               <BaselineMetricsPanel />
-              <EvaluationPanel />
-              <ExperimentRunner />
+              <EvaluationPanel
+                hasDatasets={hasDatasets}
+                datasetId={selectedDataset}
+              />
+              <ExperimentRunner
+                hasDatasets={hasDatasets}
+                datasets={visibleDatasets}
+                onCompleted={refreshAll}
+              />
               <SystemNotes />
             </>
           )}

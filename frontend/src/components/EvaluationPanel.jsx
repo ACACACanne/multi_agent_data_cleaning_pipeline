@@ -1,120 +1,114 @@
 //frontend/src/components/EvaluationPanel.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import PropTypes from "prop-types";
-import { fetchEvaluations } from "../services/api";
+import { client } from "../utils/apiClient";
+import { extractErrorMessage } from "../utils/errorUtils";
 
-/**
- * EvaluationPanel
- * Displays evaluation benchmark runs, quality scores, and remaining issues per dataset.
- */
-export default function EvaluationPanel({ className = "" }) {
+export default function EvaluationPanel({
+  hasDatasets = true,
+  datasetId = "all",
+}) {
   const [evaluations, setEvaluations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const loadEvaluations = useCallback(async () => {
+    if (!hasDatasets) {
+      setEvaluations([]);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const res = await fetchEvaluations();
-      const list = Array.isArray(res)
-        ? res
-        : res?.evaluations || res?.data || [];
+      const params =
+        datasetId && String(datasetId) !== "all"
+          ? { dataset_id: datasetId }
+          : undefined;
+      const res = await client.get("/api/evaluations", { params });
+      const list = Array.isArray(res.data)
+        ? res.data
+        : res.data?.evaluations || res.data?.items || res.data?.results || [];
       setEvaluations(list);
     } catch (err) {
-      console.error("Failed to load evaluations:", err);
-      setError(err.message || "Failed to load evaluations.");
+      const { text } = extractErrorMessage(err, "Failed to load evaluations.");
+      setError(text);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hasDatasets, datasetId]);
 
   useEffect(() => {
     loadEvaluations();
   }, [loadEvaluations]);
 
-  const fmtPercent = (val) => {
-    if (val === null || val === undefined) return "—";
-    const num = Number(val);
-    if (!Number.isFinite(num)) return "—";
-    return num <= 1.0 ? `${(num * 100).toFixed(1)}%` : `${num.toFixed(1)}%`;
-  };
-
-  const extractIssuesCount = (issues) => {
-    if (issues === null || issues === undefined) return 0;
-    if (typeof issues === "number") return issues;
-    if (typeof issues === "object") {
-      const values = Object.values(issues);
-      return values.reduce((sum, v) => sum + (Number(v) || 0), 0);
+  const formatScore = (val) => {
+    if (val === null || val === undefined || Number.isNaN(Number(val))) {
+      return "-";
     }
-    return Number(issues) || 0;
+    const num = Number(val);
+    const pct = num <= 1 ? num * 100 : num;
+    return `${pct.toFixed(1)}%`;
   };
 
   return (
-    <div
-      className={`bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md space-y-4 ${className}`}
-    >
+    <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-bold text-brand-accent">Evaluation</h3>
-        <span className="text-xs text-gray-400">Latest results</span>
+        <h3 className="text-lg font-bold text-brand-accent">Evaluation</h3>
+        <span className="text-xs text-gray-400">
+          {hasDatasets ? "Latest results" : "-"}
+        </span>
       </div>
 
       {error && (
-        <div className="p-2 rounded bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+        <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
           {error}
         </div>
       )}
 
-      {loading ? (
-        <div className="p-4 text-center text-xs text-gray-400 animate-pulse">
-          Loading evaluation benchmarks...
-        </div>
-      ) : evaluations.length === 0 ? (
-        <div className="p-4 text-center text-xs text-gray-400 italic">
-          No evaluations recorded.
+      {!hasDatasets || evaluations.length === 0 ? (
+        <div className="p-4 rounded-lg bg-brand-dark/60 border border-brand-accent/10 text-xs text-gray-400 italic text-center">
+          No evaluations available (-). Upload a dataset to run evaluations.
         </div>
       ) : (
         <div className="space-y-3">
-          {evaluations.slice(0, 3).map((item) => {
-            const score = item.quality_score ?? item.score ?? 0.984;
-            const issuesCount = extractIssuesCount(
-              item.issues ?? item.issues_count ?? item.total_issues ?? 0,
-            );
+          {evaluations.map((ev, idx) => {
+            const title = ev?.name || ev?.title || `Evaluation #${idx + 1}`;
+            const dsLabel =
+              ev?.dataset_name || ev?.dataset || ev?.dataset_id || "-";
+            const qualityVal =
+              ev?.quality_score ?? ev?.metrics?.quality_score ?? ev?.score;
+            const issuesVal =
+              ev?.issues_count ?? ev?.issues ?? ev?.metrics?.issues ?? 0;
 
             return (
               <div
-                key={item.id || item.name}
-                className="p-3 rounded-lg bg-brand-dark/50 border border-brand-accent/10 space-y-2 text-xs"
+                key={ev?.id ?? idx}
+                className="p-4 rounded-lg bg-brand-dark/70 border border-brand-accent/15 space-y-3"
               >
                 <div>
-                  <div className="font-semibold text-gray-200">
-                    {item.name || item.title || "Clinical_Evaluation"}
-                  </div>
-                  <div className="text-[11px] text-gray-400 font-mono mt-0.5">
-                    Dataset: {item.dataset_name || item.dataset_id || "ds_001"}
+                  <div className="text-sm font-bold text-gray-100">{title}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    Dataset: <span className="font-mono">{dsLabel}</span>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <div className="p-2 rounded bg-brand-dark/60 border border-brand-accent/5">
-                    <div className="text-[10px] uppercase tracking-wider text-gray-400">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="p-2.5 rounded bg-brand-light/60 border border-brand-accent/10">
+                    <div className="text-[10px] uppercase text-gray-400 font-semibold">
                       Quality Score
                     </div>
-                    <div className="text-base font-bold text-emerald-400 mt-0.5">
-                      {fmtPercent(score)}
+                    <div className="text-base font-bold font-mono text-emerald-400 mt-0.5">
+                      {formatScore(qualityVal)}
                     </div>
                   </div>
-
-                  <div className="p-2 rounded bg-brand-dark/60 border border-brand-accent/5">
-                    <div className="text-[10px] uppercase tracking-wider text-gray-400">
-                      Issues (count)
+                  <div className="p-2.5 rounded bg-brand-light/60 border border-brand-accent/10">
+                    <div className="text-[10px] uppercase text-gray-400 font-semibold">
+                      Issues (Count)
                     </div>
-                    <div
-                      className={`text-base font-bold mt-0.5 font-mono ${
-                        issuesCount > 0 ? "text-amber-400" : "text-gray-200"
-                      }`}
-                    >
-                      {issuesCount}
+                    <div className="text-base font-bold font-mono text-amber-400 mt-0.5">
+                      {Number(issuesVal) || 0}
                     </div>
                   </div>
                 </div>
@@ -128,5 +122,6 @@ export default function EvaluationPanel({ className = "" }) {
 }
 
 EvaluationPanel.propTypes = {
-  className: PropTypes.string,
+  hasDatasets: PropTypes.bool,
+  datasetId: PropTypes.string,
 };
