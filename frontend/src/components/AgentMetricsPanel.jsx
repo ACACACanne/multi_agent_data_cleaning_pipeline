@@ -1,171 +1,201 @@
 // frontend/src/components/AgentMetricsPanel.jsx
-import React, { useEffect, useState } from "react";
-import {
-  fetchAgentsList,
-  fetchAgentsMetrics,
-  fetchAgentsMetricsSummary,
-  postRunAgents,
-  fetchDatasets,
-} from "../services/api";
+import React, { useState, useEffect, useCallback } from "react";
+import PropTypes from "prop-types";
+import { client } from "../utils/apiClient";
+import { extractErrorMessage } from "../utils/errorUtils";
 
-export default function AgentMetricsPanel() {
-  const [agents, setAgents] = useState([]);
-  const [datasets, setDatasets] = useState([]);
-  const [selectedAgent, setSelectedAgent] = useState("");
-  const [selectedDataset, setSelectedDataset] = useState("");
-  const [history, setHistory] = useState([]);
-  const [summary, setSummary] = useState({});
-  const [running, setRunning] = useState(false);
+export default function AgentMetricsPanel({
+  hasDatasets = true,
+  datasetId = "all",
+}) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const [alist, ds, hist, sum] = await Promise.all([
-          fetchAgentsList(),
-          fetchDatasets(),
-          fetchAgentsMetrics(),
-          fetchAgentsMetricsSummary(),
-        ]);
-        if (!mounted) return;
-        setAgents(alist.agents || []);
-        setDatasets(ds || []);
-        setHistory(hist || []);
-        setSummary(sum || {});
-        if (alist.agents && alist.agents.length > 0)
-          setSelectedAgent(alist.agents[0]);
-        if (ds && ds.length > 0) setSelectedDataset(ds[0].id);
-      } catch (err) {
-        console.error("AgentMetricsPanel load error:", err);
-      }
-    })();
-    return () => (mounted = false);
-  }, []);
-
-  const refreshHistory = async () => {
-    try {
-      const hist = await fetchAgentsMetrics();
-      setHistory(hist || []);
-      const sum = await fetchAgentsMetricsSummary();
-      setSummary(sum || {});
-    } catch (err) {
-      console.error("Failed to refresh agent metrics:", err);
-    }
-  };
-
-  const runAgents = async () => {
-    if (!selectedDataset) {
-      alert("Select a dataset first");
+  const loadAgentMetrics = useCallback(async () => {
+    if (!hasDatasets) {
+      setData(null);
+      setError(null);
       return;
     }
-    setRunning(true);
+
+    setLoading(true);
+    setError(null);
     try {
-      const agentsToRun = selectedAgent ? [selectedAgent] : null;
-      const res = await postRunAgents(selectedDataset, agentsToRun);
-      // res.results contains per-agent metrics
-      await refreshHistory();
-      alert("Agents run complete");
+      const params =
+        datasetId && String(datasetId) !== "all"
+          ? { dataset_id: datasetId }
+          : undefined;
+      const res = await client.get("/api/agents/metrics", { params });
+      setData(res.data || null);
     } catch (err) {
-      console.error("Failed to run agents:", err);
-      alert("Failed to run agents: " + err.message);
+      const { text } = extractErrorMessage(
+        err,
+        "Failed to load agent metrics.",
+      );
+      setError(text);
     } finally {
-      setRunning(false);
+      setLoading(false);
     }
+  }, [hasDatasets, datasetId]);
+
+  useEffect(() => {
+    loadAgentMetrics();
+  }, [loadAgentMetrics]);
+
+  const formatPct = (val) => {
+    if (
+      !hasDatasets ||
+      val === null ||
+      val === undefined ||
+      Number.isNaN(Number(val))
+    ) {
+      return "-";
+    }
+    const num = Number(val);
+    const pct = num <= 1 ? num * 100 : num;
+    return `${pct.toFixed(1)}%`;
   };
 
+  const cleanerAcc = hasDatasets
+    ? formatPct(data?.cleaner_accuracy ?? data?.accuracy ?? data?.success_rate)
+    : "-";
+  const validatorRej = hasDatasets
+    ? formatPct(data?.validator_rejection_rate ?? data?.rejection_rate ?? 0)
+    : "-";
+
+  const agents = hasDatasets
+    ? [
+        {
+          key: "auditor",
+          name: "Auditor Agent",
+          role: "Schema & Anomaly Detection",
+          acc: formatPct(
+            data?.agents?.auditor?.accuracy ?? data?.cleaner_accuracy ?? 0,
+          ),
+          rej: formatPct(
+            data?.agents?.auditor?.rejection_rate ??
+              data?.validator_rejection_rate ??
+              0,
+          ),
+        },
+        {
+          key: "remediator",
+          name: "Remediator Agent",
+          role: "Imputation & Format Repair",
+          acc: formatPct(
+            data?.agents?.remediator?.accuracy ?? data?.cleaner_accuracy ?? 0,
+          ),
+          rej: formatPct(
+            data?.agents?.remediator?.rejection_rate ??
+              data?.validator_rejection_rate ??
+              0,
+          ),
+        },
+        {
+          key: "validator",
+          name: "Validator Agent",
+          role: "Contract & Deterministic Rules",
+          acc: formatPct(
+            data?.agents?.validator?.accuracy ?? data?.cleaner_accuracy ?? 0,
+          ),
+          rej: formatPct(
+            data?.agents?.validator?.rejection_rate ??
+              data?.validator_rejection_rate ??
+              0,
+          ),
+        },
+      ]
+    : [
+        {
+          key: "auditor",
+          name: "Auditor Agent",
+          role: "Schema & Anomaly Detection",
+          acc: "-",
+          rej: "-",
+        },
+        {
+          key: "remediator",
+          name: "Remediator Agent",
+          role: "Imputation & Format Repair",
+          acc: "-",
+          rej: "-",
+        },
+        {
+          key: "validator",
+          name: "Validator Agent",
+          role: "Contract & Deterministic Rules",
+          acc: "-",
+          rej: "-",
+        },
+      ];
+
   return (
-    <div className="bg-brand-light p-4 rounded border border-brand-accent/10">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-brand-accent">
-          Agent Metrics
-        </h3>
-        <div className="flex items-center gap-2">
-          <select
-            value={selectedDataset}
-            onChange={(e) => setSelectedDataset(e.target.value)}
-            className="bg-brand-dark text-sm px-2 py-1 rounded"
-          >
-            <option value="">Select dataset</option>
-            {datasets.map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.name || d.id}
-              </option>
-            ))}
-          </select>
+    <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-bold text-brand-accent">Agent Metrics</h3>
+        <button
+          type="button"
+          onClick={loadAgentMetrics}
+          disabled={!hasDatasets || loading}
+          className="px-3 py-1 text-xs font-semibold rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/30 hover:border-brand-accent transition cursor-pointer disabled:opacity-40"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
 
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
-            className="bg-brand-dark text-sm px-2 py-1 rounded"
-          >
-            <option value="">All agents</option>
-            {agents.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
+      {error && (
+        <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+          {error}
+        </div>
+      )}
 
-          <button
-            onClick={runAgents}
-            className="px-3 py-1 rounded bg-indigo-600 text-white text-sm"
-            disabled={running}
-          >
-            {running ? "Running…" : "Run"}
-          </button>
+      <div className="space-y-2.5">
+        <div className="p-3.5 rounded-lg bg-brand-dark/70 border border-brand-accent/15 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-200">
+            Cleaner accuracy:
+          </span>
+          <span className="text-base font-bold font-mono text-emerald-400">
+            {cleanerAcc}
+          </span>
+        </div>
 
-          <button
-            onClick={refreshHistory}
-            className="px-3 py-1 rounded bg-gray-700 text-white text-sm"
-          >
-            Refresh
-          </button>
+        <div className="p-3.5 rounded-lg bg-brand-dark/70 border border-brand-accent/15 flex items-center justify-between">
+          <span className="text-sm font-medium text-gray-200">
+            Validator rejection rate:
+          </span>
+          <span className="text-base font-bold font-mono text-indigo-300">
+            {validatorRej}
+          </span>
         </div>
       </div>
 
-      <div className="text-sm text-gray-200 space-y-2">
-        <div>
-          <strong>Summary</strong>
-        </div>
-        {Object.keys(summary).length === 0 ? (
-          <div className="text-gray-400 text-xs">No agent summary yet.</div>
-        ) : (
-          <div className="text-xs">
-            {Object.entries(summary).map(([agent, s]) => (
-              <div key={agent}>
-                <strong>{agent}</strong> — runs: {s.runs}, avg success:{" "}
-                {s.avg_success}
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-3">
-          <strong>Recent runs</strong>
-          {history.length === 0 ? (
-            <div className="text-gray-400 text-xs">No runs yet.</div>
-          ) : (
-            <div className="text-xs space-y-1">
-              {history.slice(0, 8).map((h) => (
-                <div key={h.id} className="border p-2 rounded bg-black/20">
-                  <div>
-                    <strong>{h.agent}</strong> on <em>{h.dataset_id}</em>
-                  </div>
-                  <div>
-                    Actions: {h.payload.actions} • Success:{" "}
-                    {h.payload.success_rate}
-                  </div>
-                  <div>Record accuracy: {h.payload.record_accuracy}</div>
-                  <div>Unsupported fixes: {h.payload.unsupported_fixes}</div>
-                  <div className="text-xs text-gray-400">
-                    At: {h.created_at}
-                  </div>
-                </div>
-              ))}
+      <div className="space-y-2.5 pt-1">
+        {agents.map((ag) => (
+          <div
+            key={ag.key}
+            className="p-3.5 rounded-lg bg-brand-dark/70 border border-brand-accent/15 flex items-center justify-between gap-3"
+          >
+            <div>
+              <div className="text-sm font-bold text-gray-100">{ag.name}</div>
+              <div className="text-xs text-gray-400">{ag.role}</div>
             </div>
-          )}
-        </div>
+            <div className="text-right font-mono">
+              <div className="text-sm font-bold text-emerald-400">
+                {ag.acc === "-" ? "-" : `${ag.acc} Acc`}
+              </div>
+              <div className="text-xs text-gray-400">
+                {ag.rej === "-" ? "-" : `${ag.rej} Rej`}
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
+
+AgentMetricsPanel.propTypes = {
+  hasDatasets: PropTypes.bool,
+  datasetId: PropTypes.string,
+};
