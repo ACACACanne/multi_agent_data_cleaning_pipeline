@@ -8,28 +8,28 @@ class Settings(BaseSettings):
     Application settings.
 
     - Allows extra environment variables (extra="allow") so legacy env names won't break startup.
-    - Accepts both canonical names (SECRET_KEY, API_KEY) and some common legacy names
+    - Accepts both canonical names (SECRET_KEY, API_KEY) and common legacy names
       (jwt_secret, jwt_algorithm, storage_path, log_dir, max_upload_bytes, allowed_origins).
     """
 
-    # pydantic v2 settings config
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        extra="allow",  # permit extra env vars instead of failing
+        extra="allow",
     )
 
     # Core app settings
     APP_NAME: str = "AI Data Quality Platform"
     API_PREFIX: str = "/api"
-    DATABASE_URL: str = "sqlite:///./backend/data.db"
+    DATABASE_URL: str = "sqlite:///./data.db"
     LOG_LEVEL: str = "INFO"
+    MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024  # 10 MB default limit
 
-    # Canonical secrets (preferred)
+    # Canonical secrets (set on server/Render; never expose in VITE_* frontend vars)
     SECRET_KEY: Optional[str] = None
     API_KEY: Optional[str] = None
 
-    # Admin credentials (dev defaults)
+    # Admin credentials (override via environment in production)
     ADMIN_USER: str = "admin"
     ADMIN_PASSWORD: str = "admin"
 
@@ -39,7 +39,12 @@ class Settings(BaseSettings):
     storage_path: Optional[str] = None
     log_dir: Optional[str] = None
     max_upload_bytes: Optional[int] = None
-    allowed_origins: Optional[str] = None  # comma-separated list
+    allowed_origins: Optional[str] = None
+
+    def get_max_upload_bytes(self) -> int:
+        if self.max_upload_bytes and self.max_upload_bytes > 0:
+            return int(self.max_upload_bytes)
+        return int(self.MAX_UPLOAD_BYTES)
 
     def get_secret_key(self) -> str:
         """
@@ -54,18 +59,15 @@ class Settings(BaseSettings):
     def get_allowed_origins(self) -> List[str]:
         """
         Return a list of allowed CORS origins.
-        - If allowed_origins is set (comma-separated), parse it.
-        - Otherwise return a sensible default for local development.
+        If allowed_origins is set (comma-separated), parse it.
+        Otherwise return sensible defaults for local development.
         """
         if self.allowed_origins:
-            # allow comma or semicolon separated lists
             raw = self.allowed_origins
             parts = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
             return parts
-        # sensible defaults for local dev
         return ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    # convenience properties for backwards compatibility
     @property
     def SECRET(self) -> str:
         return self.get_secret_key()
@@ -75,7 +77,6 @@ class Settings(BaseSettings):
         return self.get_allowed_origins()
 
 
-# instantiate settings once
 settings = Settings()
 
 
