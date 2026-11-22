@@ -1,5 +1,4 @@
 # backend/src/routes/datasets.py
-# backend/src/routes/datasets.py
 """
 Datasets Route Controller (Production)
 Manages uploaded and registered datasets with persistent storage.
@@ -259,6 +258,34 @@ def inject_anomalies_into_rows(
             row["diagnosis_code"] = f"ERR_ICD_{random.randint(100, 999)}!!"
 
     return mutated_rows, anomalies_injected
+
+
+def generate_default_clinical_rows(count: int = 299) -> List[Dict[str, Any]]:
+    """Helper to generate synthetic test rows on demand (not auto-loaded into DATASETS_STORE)."""
+    rows = []
+    for i in range(count):
+        rows.append({
+            "id": f"rec_{i+1:03d}",
+            "encounter_id": 100000 + i,
+            "patient_nbr": 800000 + i,
+            "patient_id": f"PT-{1000 + i}",
+            "age": 25 + (i % 55),
+            "gender": "Female" if i % 2 == 0 else "Male",
+            "systolic_bp": 115 + (i % 25),
+            "diastolic_bp": 75 + (i % 15),
+            "chol": 180 + (i % 60),
+            "trestbps": 120 + (i % 20),
+            "radius_mean": round(14.5 + (i % 8) * 0.8, 2),
+            "texture_mean": round(18.2 + (i % 6) * 0.5, 2),
+            "area_mean": round(650.0 + (i % 10) * 45.0, 1),
+            "admission_date": "2026-01-15",
+            "discharge_date": "2026-01-22",
+            "diag_1": "250.00",
+            "diagnosis_code": "414.01",
+            "data_status": "VALID",
+            "_data_status": "VALID",
+        })
+    return rows
 
 
 # ===========================================================================
