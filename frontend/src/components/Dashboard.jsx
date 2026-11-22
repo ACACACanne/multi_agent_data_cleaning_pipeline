@@ -74,18 +74,25 @@ export default function Dashboard() {
       !String(d.id).startsWith("ds_clean_"),
   );
 
+  const hasDatasets = visibleDatasets.length > 0;
+
   useEffect(() => {
-    if (!selectedDataset && visibleDatasets.length > 0) {
+    if (!hasDatasets) {
+      setSelectedDataset("all");
+      setCleanerMetrics(null);
+      setManualMetricsData(null);
+    } else if (!selectedDataset) {
       setSelectedDataset("all");
     }
-  }, [visibleDatasets, selectedDataset]);
+  }, [hasDatasets, selectedDataset, setCleanerMetrics]);
 
-  const effectiveDatasetId =
-    selectedDataset === "all" ||
-    !selectedDataset ||
-    !visibleDatasets.some((d) => String(d.id) === String(selectedDataset))
-      ? visibleDatasets[0]?.id || "ds_001"
-      : selectedDataset;
+  const effectiveDatasetId = hasDatasets
+    ? selectedDataset === "all" ||
+      !selectedDataset ||
+      !visibleDatasets.some((d) => String(d.id) === String(selectedDataset))
+      ? visibleDatasets[0]?.id || null
+      : selectedDataset
+    : null;
 
   const refreshHistory = useCallback(
     async (targetId = selectedDataset) => {
@@ -103,6 +110,12 @@ export default function Dashboard() {
 
   const loadCleanerData = useCallback(
     async (targetId) => {
+      if (!hasDatasets) {
+        setCleanerMetrics(null);
+        setManualMetricsData(null);
+        return;
+      }
+
       try {
         const [cleanerRes, manualRes] = await Promise.all([
           fetchCleanerMetrics(targetId).catch(() => null),
@@ -123,7 +136,7 @@ export default function Dashboard() {
         console.error("Failed to load cleaner metrics:", err);
       }
     },
-    [setCleanerMetrics, showDiagnostics],
+    [hasDatasets, setCleanerMetrics, showDiagnostics],
   );
 
   useEffect(() => {
@@ -136,6 +149,7 @@ export default function Dashboard() {
   };
 
   async function runCleaner() {
+    if (!hasDatasets) return;
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
@@ -164,6 +178,7 @@ export default function Dashboard() {
   }
 
   async function runAllAgents() {
+    if (!hasDatasets) return;
     const dsId =
       typeof selectedDataset === "object" && selectedDataset !== null
         ? selectedDataset.id
@@ -196,24 +211,31 @@ export default function Dashboard() {
     }
   }
 
-  const selectedTrajectories = metrics?.trajectories?.[effectiveDatasetId] ||
-    metrics?.trajectories?.["all"] ||
-    cleanerMetrics?.trajectories || {
-      baseline: [],
-      agent: [],
-      manual: [],
-    };
+  const selectedTrajectories =
+    hasDatasets && effectiveDatasetId
+      ? metrics?.trajectories?.[effectiveDatasetId] ||
+        metrics?.trajectories?.["all"] ||
+        cleanerMetrics?.trajectories || {
+          baseline: [],
+          agent: [],
+          manual: [],
+        }
+      : { baseline: [], agent: [], manual: [] };
 
-  const baselineQuality =
-    cleanerMetrics?.baseline_quality ??
-    metrics?.datasets?.[effectiveDatasetId]?.quality_score ??
-    0.885;
-  const baselineIssues =
-    cleanerMetrics?.issues ??
-    metrics?.datasets?.[effectiveDatasetId]?.issues ??
-    0;
-  const cleanedQuality = cleanerMetrics?.cleaned_quality ?? 0.994;
-  const cleanedIssues = cleanerMetrics?.issues ?? 0;
+  const baselineQuality = hasDatasets
+    ? (cleanerMetrics?.baseline_quality ??
+      metrics?.datasets?.[effectiveDatasetId]?.quality_score ??
+      0)
+    : 0;
+  const baselineIssues = hasDatasets
+    ? (cleanerMetrics?.issues ??
+      metrics?.datasets?.[effectiveDatasetId]?.issues ??
+      0)
+    : 0;
+  const cleanedQuality = hasDatasets
+    ? (cleanerMetrics?.cleaned_quality ?? 0)
+    : 0;
+  const cleanedIssues = hasDatasets ? (cleanerMetrics?.issues ?? 0) : 0;
 
   const formatLogItem = (item) => {
     if (!item) return "";
@@ -323,22 +345,24 @@ export default function Dashboard() {
                   }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
-                  Record Preview ({effectiveDatasetId})
+                  Record Preview ({effectiveDatasetId || "-"})
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => openViewerModal(effectiveDatasetId)}
-                style={{
-                  backgroundColor: "#1e293b",
-                  color: "#60a5fa",
-                  border: "1px solid rgba(96, 165, 250, 0.4)",
-                }}
-                className="px-3 py-1.5 text-xs font-bold rounded-lg hover:border-brand-accent hover:text-white transition shrink-0 cursor-pointer"
-              >
-                Expand Modal ↗
-              </button>
+              {hasDatasets && effectiveDatasetId && (
+                <button
+                  type="button"
+                  onClick={() => openViewerModal(effectiveDatasetId)}
+                  style={{
+                    backgroundColor: "#1e293b",
+                    color: "#60a5fa",
+                    border: "1px solid rgba(96, 165, 250, 0.4)",
+                  }}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg hover:border-brand-accent hover:text-white transition shrink-0 cursor-pointer"
+                >
+                  Expand Modal ↗
+                </button>
+              )}
             </div>
 
             <div className="p-3.5 max-h-[340px] overflow-y-auto overflow-x-hidden space-y-3">
@@ -353,11 +377,16 @@ export default function Dashboard() {
                   onOpenFullViewer={openViewerModal}
                   onSelectDataset={(id) => setSelectedDataset(id)}
                 />
-              ) : (
+              ) : hasDatasets && effectiveDatasetId ? (
                 <RecordsTable
                   datasetId={effectiveDatasetId}
                   initialPageSize={5}
                 />
+              ) : (
+                <div className="p-6 text-center text-xs text-gray-400 italic">
+                  No dataset loaded (-). Upload a CSV or JSON file to preview
+                  records.
+                </div>
               )}
             </div>
           </div>
@@ -366,7 +395,7 @@ export default function Dashboard() {
             datasets={visibleDatasets}
             datasetId={selectedDataset}
             onSelectDataset={(id) => setSelectedDataset(id)}
-            metrics={cleanerMetrics}
+            metrics={hasDatasets ? cleanerMetrics : null}
             loading={loadingCleaner}
             onRunCleaner={runCleaner}
             onRunAllAgents={runAllAgents}
@@ -379,7 +408,7 @@ export default function Dashboard() {
             cleanedIssues={cleanedIssues}
           />
 
-          {showDiagnostics && (
+          {showDiagnostics && hasDatasets && (
             <div className="space-y-6 pt-2 border-t border-brand-accent/20">
               <FixSuggestionsPanel
                 suggestions={cleanerMetrics?.suggestions || []}
@@ -387,53 +416,20 @@ export default function Dashboard() {
               />
 
               <AgentReasoningTimeline
-                reasoning={
-                  metrics?.reasoning?.[effectiveDatasetId] || [
-                    {
-                      step: 1,
-                      agent: "Auditor Agent",
-                      action: "Scan schema drift & invariant breaches",
-                      finding: `Scanned ${effectiveDatasetId} records and isolated structural anomalies.`,
-                      confidence: 0.98,
-                    },
-                    {
-                      step: 2,
-                      agent: "Remediator Agent",
-                      action: "Cohort-aware imputation & invariant repair",
-                      finding:
-                        "Applied cohort median imputation, deterministic bounds, and chronological checks.",
-                      confidence: 0.99,
-                    },
-                    {
-                      step: 3,
-                      agent: "Validator Agent",
-                      action: "Data contract verification",
-                      finding:
-                        "Verified cleaned records against active validation contracts.",
-                      confidence: 1.0,
-                    },
-                  ]
-                }
+                reasoning={metrics?.reasoning?.[effectiveDatasetId] || []}
               />
 
               <DatasetRiskMap
                 risk={
                   metrics?.risk?.[effectiveDatasetId] || {
-                    level: "low",
-                    factors: [
-                      "Dataset verified",
-                      "Contract assertions passing",
-                    ],
+                    level: "-",
+                    factors: [],
                   }
                 }
               />
 
               <QualityForecastChart
-                forecast={
-                  metrics?.forecast?.[effectiveDatasetId] || [
-                    0.95, 0.94, 0.93, 0.92,
-                  ]
-                }
+                forecast={metrics?.forecast?.[effectiveDatasetId] || []}
               />
 
               <TrajectoryGraph
@@ -446,7 +442,7 @@ export default function Dashboard() {
                 manualMetrics={
                   manualMetricsData ||
                   metrics?.manual?.[effectiveDatasetId] ||
-                  metrics?.manual?.["all"]
+                  null
                 }
               />
             </div>
@@ -462,7 +458,7 @@ export default function Dashboard() {
 
         <div className="space-y-6">
           <MetricsPanel
-            metrics={metrics}
+            metrics={hasDatasets ? metrics : null}
             datasets={visibleDatasets}
             onRefresh={refreshAll}
           />

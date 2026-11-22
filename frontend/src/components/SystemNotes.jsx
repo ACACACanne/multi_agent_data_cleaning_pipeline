@@ -1,90 +1,68 @@
 // frontend/src/components/SystemNotes.jsx
-import React, { useEffect, useState } from "react";
-import PropTypes from "prop-types";
+import React, { useState, useEffect, useCallback } from "react";
 import { client } from "../utils/apiClient";
 import { extractErrorMessage } from "../utils/errorUtils";
 
-/**
- * SystemNotes
- *
- * - Fetches notes from /api/system/notes.
- * - Supports optimistic creation + deletion.
- * - Fully Vite‑compatible (no process.env).
- * - Safely handles malformed backend responses.
- */
+function extractNoteText(item) {
+  if (typeof item === "string") return item;
+  if (!item || typeof item !== "object") return "";
+  return (
+    item.text ?? item.content ?? item.message ?? item.note ?? item.body ?? ""
+  );
+}
 
-export default function SystemNotes({ autoLoad = true, maxNotes = 200 }) {
+function extractNoteTimestamp(item) {
+  if (!item || typeof item !== "object") return "";
+  const raw = item.timestamp || item.created_at || item.updated_at || "";
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? String(raw) : parsed.toLocaleString();
+}
+
+export default function SystemNotes() {
   const [notes, setNotes] = useState([]);
-  const [text, setText] = useState("");
+  const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchNotes = async () => {
-    setError(null);
+  const loadNotes = useCallback(async () => {
     setLoading(true);
-
+    setError(null);
     try {
-      const res = await client.get("/api/system/notes");
-
-      const raw = res?.data;
-      const data = Array.isArray(raw)
-        ? raw
-        : Array.isArray(raw?.items)
-          ? raw.items
-          : [];
-
-      setNotes(data.slice(0, maxNotes));
+      const res = await client.get("/api/notes");
+      const list = Array.isArray(res.data)
+        ? res.data
+        : res.data?.notes || res.data?.items || [];
+      setNotes(list);
     } catch (err) {
-      const { text } = extractErrorMessage(err, "Failed to fetch notes.");
+      const { text } = extractErrorMessage(err, "Failed to load notes.");
       setError(text);
-      setNotes([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const addNote = async () => {
-    setError(null);
+  useEffect(() => {
+    loadNotes();
+  }, [loadNotes]);
 
-    const trimmed = (text || "").trim();
-    if (!trimmed) {
-      setError("Note cannot be empty.");
-      return;
-    }
+  const handleAddNote = async (e) => {
+    e.preventDefault();
+    const trimmed = draft.trim();
+    if (!trimmed) return;
 
-    // Optimistic UI
-    const temp = {
-      id: `temp-${Date.now()}`,
-      text: trimmed,
-      created_at: new Date().toISOString(),
-      saving: true,
-    };
-
-    setNotes((prev) => [temp, ...prev].slice(0, maxNotes));
-    setText("");
     setSaving(true);
-
+    setError(null);
     try {
-      const res = await client.post("/api/system/notes", { text: trimmed });
-      const created = res?.data;
-
-      setNotes((prev) => {
-        if (created && created.id) {
-          return [created, ...prev.filter((n) => n.id !== temp.id)].slice(
-            0,
-            maxNotes,
-          );
-        }
-
-        // Backend returned no object → keep optimistic note but remove saving flag
-        return prev.map((n) =>
-          n.id === temp.id ? { ...n, saving: false } : n,
-        );
+      await client.post("/api/notes", {
+        text: trimmed,
+        content: trimmed,
+        note: trimmed,
       });
+      setDraft("");
+      await loadNotes();
     } catch (err) {
-      // Remove optimistic note
-      setNotes((prev) => prev.filter((n) => n.id !== temp.id));
       const { text } = extractErrorMessage(err, "Failed to save note.");
       setError(text);
     } finally {
@@ -92,124 +70,105 @@ export default function SystemNotes({ autoLoad = true, maxNotes = 200 }) {
     }
   };
 
-  const deleteNote = async (id) => {
-    if (!id) return;
-
+  const handleDeleteNote = async (note, idx) => {
     setError(null);
-
-    const previous = notes;
-    setNotes((n) => n.filter((x) => x.id !== id));
-
+    const id = note?.id ?? note?._id;
     try {
-      await client.delete(`/api/system/notes/${encodeURIComponent(id)}`);
+      if (id !== undefined && id !== null) {
+        await client.delete(`/api/notes/${encodeURIComponent(String(id))}`);
+        await loadNotes();
+      } else {
+        setNotes((prev) => prev.filter((_, i) => i !== idx));
+      }
     } catch (err) {
-      // Roll back
-      setNotes(previous);
       const { text } = extractErrorMessage(err, "Failed to delete note.");
       setError(text);
     }
   };
 
-  useEffect(() => {
-    if (autoLoad) fetchNotes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoLoad]);
-
   return (
-    <div className="bg-brand-light p-6 rounded-xl shadow-lg border border-brand-accent/20">
-      <div className="flex items-baseline justify-between mb-4">
-        <h2 className="text-2xl font-bold text-brand-accent">System Notes</h2>
-
-        <div className="flex items-center gap-2">
-          {loading && <span className="text-gray-400 text-sm">Loading…</span>}
-          <button
-            onClick={fetchNotes}
-            disabled={loading}
-            className="px-3 py-1 rounded-md bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition"
-            title="Refresh notes"
-          >
-            Refresh
-          </button>
-        </div>
+    <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-bold text-brand-accent">System Notes</h3>
+        <button
+          type="button"
+          onClick={loadNotes}
+          disabled={loading}
+          className="px-3 py-1 text-xs font-semibold rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/30 hover:border-brand-accent transition cursor-pointer disabled:opacity-50"
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
       </div>
 
-      {error && <p className="text-red-400 text-sm mb-2">{error}</p>}
-
-      <div className="space-y-4">
+      <form onSubmit={handleAddNote} className="space-y-3">
         <textarea
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setError(null);
-          }}
-          className="w-full h-24 p-3 rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/20"
+          rows={3}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
           placeholder="Add a note about experiments, agents, or metrics..."
+          className="w-full rounded-lg bg-brand-dark border border-brand-accent/25 px-3 py-2 text-sm text-gray-100 placeholder-gray-500 focus:outline-none focus:border-brand-accent"
         />
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <button
-            onClick={addNote}
-            disabled={saving}
-            className={`py-2 px-4 rounded-lg font-semibold transition ${
-              saving
-                ? "bg-gray-600 cursor-not-allowed"
-                : "bg-brand-accent text-black hover:bg-blue-300"
-            }`}
+            type="submit"
+            disabled={saving || !draft.trim()}
+            className="px-4 py-2 rounded-lg text-xs font-bold bg-brand-accent text-black hover:bg-blue-300 transition cursor-pointer disabled:opacity-40"
           >
             {saving ? "Saving…" : "Add Note"}
           </button>
-
           <button
-            onClick={() => {
-              setText("");
-              setError(null);
-            }}
-            className="py-2 px-4 rounded-lg bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition"
+            type="button"
+            onClick={() => setDraft("")}
+            className="px-3 py-2 rounded-lg text-xs font-semibold bg-brand-dark text-gray-300 border border-brand-accent/20 hover:border-brand-accent transition cursor-pointer"
           >
             Clear
           </button>
         </div>
+      </form>
 
-        <div className="bg-brand-dark p-4 rounded-lg border border-brand-accent/10 space-y-2 max-h-64 overflow-y-auto">
-          {notes.length === 0 ? (
-            <p className="text-gray-400 text-sm italic">No notes yet.</p>
-          ) : (
-            notes.map((n) => (
+      {error && (
+        <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
+          {error}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {notes.length === 0 ? (
+          <div className="p-3 rounded-lg bg-brand-dark/60 border border-brand-accent/10 text-xs text-gray-400 italic">
+            No notes yet.
+          </div>
+        ) : (
+          notes.map((item, idx) => {
+            const message = extractNoteText(item) || "-";
+            const stamp = extractNoteTimestamp(item);
+            return (
               <div
-                key={n.id ?? `${n.created_at}-${Math.random()}`}
-                className="p-2 rounded-md bg-brand-light/20 border border-brand-accent/10 flex items-start justify-between gap-3"
+                key={item?.id ?? idx}
+                className="p-3 rounded-lg bg-brand-dark/70 border border-brand-accent/15 flex items-center justify-between gap-3"
               >
-                <div className="flex-1">
-                  <p className="text-gray-300 text-sm whitespace-pre-wrap">
-                    {n.text ?? String(n)}
-                  </p>
-
-                  <div className="text-xs text-gray-400 mt-1">
-                    {n.created_at
-                      ? new Date(n.created_at).toLocaleString()
-                      : "unknown"}
-                    {n.saving ? " • saving…" : ""}
+                <div className="min-w-0">
+                  <div className="text-sm text-gray-100 break-words">
+                    {message}
                   </div>
+                  {stamp && (
+                    <div className="text-xs font-mono text-gray-400 mt-1">
+                      {stamp}
+                    </div>
+                  )}
                 </div>
-
                 <button
-                  onClick={() => deleteNote(n.id)}
-                  disabled={n.saving}
-                  className="px-2 py-1 rounded-md bg-red-500 text-black font-semibold hover:bg-red-400 transition shrink-0"
-                  title="Delete note"
+                  type="button"
+                  onClick={() => handleDeleteNote(item, idx)}
+                  className="px-3 py-1 rounded-lg text-xs font-bold bg-rose-600 text-white hover:bg-rose-500 transition shrink-0 cursor-pointer"
                 >
                   Delete
                 </button>
               </div>
-            ))
-          )}
-        </div>
+            );
+          })
+        )}
       </div>
     </div>
   );
 }
-
-SystemNotes.propTypes = {
-  autoLoad: PropTypes.bool,
-  maxNotes: PropTypes.number,
-};
