@@ -48,6 +48,7 @@ export default function Dashboard() {
   const [viewerOpen, setViewerOpen] = useState(false);
   const [viewerDatasetId, setViewerDatasetId] = useState(null);
   const [activeDataTab, setActiveDataTab] = useState("registry");
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const [selectedDataset, setSelectedDataset] = useState("all");
   const [loadingCleaner, setLoadingCleaner] = useState(false);
@@ -91,9 +92,9 @@ export default function Dashboard() {
       try {
         const [cleanerRes, manualRes] = await Promise.all([
           fetchCleanerMetrics(targetId).catch(() => null),
-          fetchManualMetrics
+          showDiagnostics && fetchManualMetrics
             ? fetchManualMetrics(targetId).catch(() => null)
-            : null,
+            : Promise.resolve(null),
         ]);
 
         if (cleanerRes) {
@@ -105,10 +106,10 @@ export default function Dashboard() {
           setManualMetricsData(manualRes);
         }
       } catch (err) {
-        console.error("Failed to load cleaner/manual metrics:", err);
+        console.error("Failed to load cleaner metrics:", err);
       }
     },
-    [setCleanerMetrics],
+    [setCleanerMetrics, showDiagnostics],
   );
 
   useEffect(() => {
@@ -222,6 +223,46 @@ export default function Dashboard() {
 
   return (
     <div className="w-full max-w-[1600px] mx-auto space-y-6 pb-12">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-brand-light px-4 py-3 rounded-xl border border-brand-accent/20">
+        <div className="flex items-center gap-3">
+          <DatasetHealthBadge score={baselineQuality} />
+          <span className="text-xs text-gray-400">
+            Production Pipeline: Upload &rarr; Clean &rarr; Export
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowHistoryDrawer(true)}
+            aria-label="View remediation history"
+            style={{
+              backgroundColor: "#0b1220",
+              color: "#e5e7eb",
+              border: "1px solid rgba(96, 165, 250, 0.3)",
+            }}
+            className="px-3.5 py-1.5 text-xs font-semibold rounded-lg hover:border-brand-accent transition cursor-pointer"
+          >
+            Remediation History
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowDiagnostics((prev) => !prev)}
+            style={{
+              backgroundColor: showDiagnostics ? "#60a5fa" : "#1e293b",
+              color: showDiagnostics ? "#0b1220" : "#e5e7eb",
+              border: "1px solid rgba(96, 165, 250, 0.35)",
+            }}
+            className="px-3.5 py-1.5 text-xs font-bold rounded-lg transition cursor-pointer"
+          >
+            {showDiagnostics
+              ? "Hide Research & Diagnostics"
+              : "Research & Diagnostics"}
+          </button>
+        </div>
+      </div>
+
       <section aria-label="Upload Dataset">
         <UploadPanel onUploaded={() => refreshAll()} />
       </section>
@@ -268,7 +309,7 @@ export default function Dashboard() {
                   }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
-                  Quick Record Samples ({effectiveDatasetId})
+                  Record Preview ({effectiveDatasetId})
                 </button>
               </div>
 
@@ -299,23 +340,10 @@ export default function Dashboard() {
                   onSelectDataset={(id) => setSelectedDataset(id)}
                 />
               ) : (
-                <div className="space-y-2">
-                  <div className="text-[11px] text-gray-400 flex items-center justify-between pb-1 border-b border-brand-accent/10">
-                    <span>
-                      Showing active record rows for:{" "}
-                      <strong className="text-white font-mono">
-                        {effectiveDatasetId}
-                      </strong>
-                    </span>
-                    <span className="text-emerald-400 font-mono text-[10px]">
-                      Real-time JSON &amp; Tabular Sync
-                    </span>
-                  </div>
-                  <RecordsTable
-                    datasetId={effectiveDatasetId}
-                    initialPageSize={4}
-                  />
-                </div>
+                <RecordsTable
+                  datasetId={effectiveDatasetId}
+                  initialPageSize={5}
+                />
               )}
             </div>
           </div>
@@ -330,23 +358,6 @@ export default function Dashboard() {
             onRunAllAgents={runAllAgents}
           />
 
-          <DatasetRiskMap
-            risk={
-              metrics?.risk?.[effectiveDatasetId] || {
-                level: "low",
-                factors: ["Dataset verified", "Contract assertions passing"],
-              }
-            }
-          />
-
-          <QualityForecastChart
-            forecast={
-              metrics?.forecast?.[effectiveDatasetId] || [
-                0.95, 0.94, 0.93, 0.92,
-              ]
-            }
-          />
-
           <BeforeAfterComparisonPanel
             baselineQuality={baselineQuality}
             baselineIssues={baselineIssues}
@@ -354,71 +365,78 @@ export default function Dashboard() {
             cleanedIssues={cleanedIssues}
           />
 
-          <TrajectoryGraph
-            datasetId={effectiveDatasetId}
-            trajectories={selectedTrajectories}
-          />
+          {showDiagnostics && (
+            <div className="space-y-6 pt-2 border-t border-brand-accent/20">
+              <FixSuggestionsPanel
+                suggestions={cleanerMetrics?.suggestions || []}
+                onApply={() => runCleaner()}
+              />
 
-          <FixSuggestionsPanel
-            suggestions={cleanerMetrics?.suggestions || []}
-            onApply={() => runCleaner()}
-          />
+              <AgentReasoningTimeline
+                reasoning={
+                  metrics?.reasoning?.[effectiveDatasetId] || [
+                    {
+                      step: 1,
+                      agent: "Auditor Agent",
+                      action: "Scan schema drift & invariant breaches",
+                      finding: `Scanned ${effectiveDatasetId} records and isolated structural anomalies.`,
+                      confidence: 0.98,
+                    },
+                    {
+                      step: 2,
+                      agent: "Remediator Agent",
+                      action: "Contextual imputation & invariant repair",
+                      finding:
+                        "Applied deterministic rules, KNN imputation, and numerical outlier bounds.",
+                      confidence: 0.99,
+                    },
+                    {
+                      step: 3,
+                      agent: "Validator Agent",
+                      action: "Data contract verification",
+                      finding:
+                        "All records conform to active Pydantic v2 validation contracts.",
+                      confidence: 1.0,
+                    },
+                  ]
+                }
+              />
 
-          <AgentReasoningTimeline
-            reasoning={
-              metrics?.reasoning?.[effectiveDatasetId] || [
-                {
-                  step: 1,
-                  agent: "Auditor Agent",
-                  action: "Scan schema drift & invariant breaches",
-                  finding: `Scanned ${effectiveDatasetId} records and isolated structural anomalies.`,
-                  confidence: 0.98,
-                },
-                {
-                  step: 2,
-                  agent: "Remediator Agent",
-                  action: "Contextual imputation & invariant repair",
-                  finding:
-                    "Applied deterministic rules, KNN imputation, and numerical outlier bounds.",
-                  confidence: 0.99,
-                },
-                {
-                  step: 3,
-                  agent: "Validator Agent",
-                  action: "Data contract verification",
-                  finding:
-                    "All records conform to active Pydantic v2 validation contracts.",
-                  confidence: 1.0,
-                },
-              ]
-            }
-          />
+              <DatasetRiskMap
+                risk={
+                  metrics?.risk?.[effectiveDatasetId] || {
+                    level: "low",
+                    factors: [
+                      "Dataset verified",
+                      "Contract assertions passing",
+                    ],
+                  }
+                }
+              />
 
-          <ComparisonCleanerManual
-            cleanerMetrics={cleanerMetrics}
-            manualMetrics={
-              manualMetricsData ||
-              metrics?.manual?.[effectiveDatasetId] ||
-              metrics?.manual?.["all"]
-            }
-          />
+              <QualityForecastChart
+                forecast={
+                  metrics?.forecast?.[effectiveDatasetId] || [
+                    0.95, 0.94, 0.93, 0.92,
+                  ]
+                }
+              />
 
-          <div className="flex items-center justify-between pt-2">
-            <button
-              type="button"
-              onClick={() => setShowHistoryDrawer(true)}
-              aria-label="View remediation history"
-              style={{
-                backgroundColor: "#0b1220",
-                color: "#e5e7eb",
-                border: "1px solid rgba(96, 165, 250, 0.3)",
-              }}
-              className="px-4 py-2 text-xs font-semibold rounded-lg hover:border-brand-accent transition shadow-sm cursor-pointer"
-            >
-              View Remediation History
-            </button>
-            <DatasetHealthBadge score={baselineQuality} />
-          </div>
+              <TrajectoryGraph
+                datasetId={effectiveDatasetId}
+                trajectories={selectedTrajectories}
+              />
+
+              <ComparisonCleanerManual
+                cleanerMetrics={cleanerMetrics}
+                manualMetrics={
+                  manualMetricsData ||
+                  metrics?.manual?.[effectiveDatasetId] ||
+                  metrics?.manual?.["all"]
+                }
+              />
+            </div>
+          )}
 
           <RemediationHistoryDrawer
             open={showHistoryDrawer}
@@ -434,33 +452,40 @@ export default function Dashboard() {
             datasets={visibleDatasets}
             onRefresh={refreshAll}
           />
-          <BaselineMetricsPanel />
-          <EvaluationPanel />
-          <ExperimentRunner />
-          <SystemNotes />
+
+          {showDiagnostics && (
+            <>
+              <BaselineMetricsPanel />
+              <EvaluationPanel />
+              <ExperimentRunner />
+              <SystemNotes />
+            </>
+          )}
         </div>
       </div>
 
-      <section aria-label="System Run Log" className="mt-8">
-        <h3 className="text-base text-gray-200 mb-2 font-bold">
-          System Run Log
-        </h3>
-        <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 text-xs text-gray-300 shadow-md">
-          {runLog && runLog.length > 0 ? (
-            <div className="space-y-1.5 font-mono max-h-60 overflow-y-auto pr-2">
-              {runLog.slice(0, 20).map((l, i) => (
-                <div key={i} className="text-xs text-gray-300">
-                  {formatLogItem(l)}
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-gray-400 italic">
-              No run log entries recorded yet.
-            </div>
-          )}
-        </div>
-      </section>
+      {showDiagnostics && (
+        <section aria-label="System Run Log" className="mt-8">
+          <h3 className="text-base text-gray-200 mb-2 font-bold">
+            System Run Log
+          </h3>
+          <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 text-xs text-gray-300 shadow-md">
+            {runLog && runLog.length > 0 ? (
+              <div className="space-y-1.5 font-mono max-h-60 overflow-y-auto pr-2">
+                {runLog.slice(0, 20).map((l, i) => (
+                  <div key={i} className="text-xs text-gray-300">
+                    {formatLogItem(l)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-gray-400 italic">
+                No run log entries recorded yet.
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {viewerOpen && viewerDatasetId && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 sm:p-6">
