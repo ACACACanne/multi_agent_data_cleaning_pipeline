@@ -48,7 +48,7 @@ export default function RecordsTable({
         setColumns(
           Object.keys(items[0]).map((k) => ({
             key: k,
-            label: k.lstrip?.("_") || k.replace(/_/g, " ").toUpperCase(),
+            label: k.replace(/^_+/, "").replace(/_/g, " ").toUpperCase(),
             type: typeof items[0][k] === "number" ? "number" : "string",
           })),
         );
@@ -75,7 +75,6 @@ export default function RecordsTable({
 
   return (
     <div className={`space-y-3 ${className}`}>
-      {/* Table Controls Bar */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-brand-accent">
@@ -87,7 +86,6 @@ export default function RecordsTable({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Status Filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -99,7 +97,6 @@ export default function RecordsTable({
             <option value="REMEDIATED">Remediated</option>
           </select>
 
-          {/* Page Size Selector */}
           <select
             value={pageSize}
             onChange={(e) => setPageSize(Number(e.target.value))}
@@ -111,7 +108,6 @@ export default function RecordsTable({
             <option value={50}>50</option>
           </select>
 
-          {/* Pagination buttons */}
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -142,7 +138,6 @@ export default function RecordsTable({
         </div>
       )}
 
-      {/* Table Data Area */}
       <div className="relative overflow-x-auto rounded-lg border border-brand-accent/10 bg-brand-dark/40 max-h-96">
         {loading ? (
           <div className="p-8 text-center text-xs text-gray-400 animate-pulse">
