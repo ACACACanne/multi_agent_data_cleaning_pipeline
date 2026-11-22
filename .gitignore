@@ -84,3 +84,10 @@ htmlcov/
 # ==========================================
 .DS_Store
 Thumbs.db
+
+# ==========================================
+# Remove hardcoded datasets and audit reports from the repository
+# ==========================================
+datasets_storage.json
+audit_reports.json
+*.db*
