@@ -1,21 +1,24 @@
 #backend/src/routes/upload.py
 """
-Upload Route Controller (Production)
-Handles dataset ingestion (CSV & JSON), row parsing, dataset registry,
-and database record persistence.
+Upload Route Controller (Production Hardened)
+Handles dataset ingestion (CSV & JSON), upload size/type validation,
+dataset name sanitization, and store + database persistence.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
 from typing import Dict, Any, Optional, List
+from pathlib import Path
 import io
 import csv
 import json
+import re
 import uuid
 import datetime
 import logging
 
 from sqlmodel import Session
 
+from src.config.settings import settings
 from src.db.session import get_session
 from src.models.record import Record
 from src.routes.datasets import (
@@ -27,6 +30,8 @@ from src.routes.datasets import (
 router = APIRouter()
 logger = logging.getLogger("datara.routes.upload")
 
+CHUNK_SIZE_BYTES = 64 * 1024  # 64 KB read chunks
+
 
 def format_file_size(size_bytes: int) -> str:
     if size_bytes < 1024:
@@ -34,6 +39,28 @@ def format_file_size(size_bytes: int) -> str:
     elif size_bytes < 1024 * 1024:
         return f"{(size_bytes / 1024):.1f} KB"
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
+
+
+def sanitize_label(raw: Optional[str], fallback: str) -> str:
+    if not raw:
+        return fallback
+    cleaned = re.sub(r"[\x00-\x1f\x7f]+", "", str(raw)).strip()
+    return cleaned[:120] if cleaned else fallback
+
+
+async def _read_upload_bounded(file: UploadFile, max_bytes: int) -> bytes:
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(CHUNK_SIZE_BYTES)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds maximum allowed size of {format_file_size(max_bytes)}.",
+            )
+    return bytes(buffer)
 
 
 def _persist_records_to_db(
@@ -75,14 +102,14 @@ async def upload_dataset_file(
     session: Session = Depends(get_session),
 ):
     """
-    Accepts CSV or JSON file uploads, parses rows/columns, registers the dataset,
-    and persists rows to storage and database.
+    Accepts CSV or JSON file uploads with size and format checks, parses rows/columns,
+    and registers the dataset in persistent storage.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
 
-    filename = file.filename
-    ext = filename.split(".")[-1].lower() if "." in filename else ""
+    safe_filename = sanitize_label(Path(file.filename).name, "uploaded_dataset")
+    ext = safe_filename.rsplit(".", 1)[-1].lower() if "." in safe_filename else ""
 
     if ext not in ["csv", "json"]:
         raise HTTPException(
@@ -90,9 +117,14 @@ async def upload_dataset_file(
             detail=f"Unsupported file format: '.{ext}'. Only CSV and JSON files are supported.",
         )
 
+    max_bytes = settings.get_max_upload_bytes()
+    contents = await _read_upload_bounded(file, max_bytes)
+    file_size_bytes = len(contents)
+
+    if file_size_bytes == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
     try:
-        contents = await file.read()
-        file_size_bytes = len(contents)
         parsed_rows: List[Dict[str, Any]] = []
         columns_count = 0
 
@@ -134,12 +166,12 @@ async def upload_dataset_file(
 
         rows_count = len(parsed_rows)
         dataset_id = f"ds_{uuid.uuid4().hex[:6]}"
-        display_name = dataset_name or filename
+        display_name = sanitize_label(dataset_name, safe_filename)
 
         new_dataset = {
             "id": dataset_id,
             "name": display_name,
-            "filename": filename,
+            "filename": safe_filename,
             "rows_count": rows_count,
             "rows": rows_count,
             "columns_count": columns_count,
@@ -170,6 +202,8 @@ async def upload_dataset_file(
 
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Invalid JSON file format.")
+    except HTTPException:
+        raise
     except Exception as err:
         logger.error(f"Error processing upload: {str(err)}", exc_info=True)
         raise HTTPException(
