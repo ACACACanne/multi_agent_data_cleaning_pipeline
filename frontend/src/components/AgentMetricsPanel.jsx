@@ -5,7 +5,7 @@ import { client } from "../utils/apiClient";
 import { extractErrorMessage } from "../utils/errorUtils";
 
 export default function AgentMetricsPanel({
-  hasDatasets = true,
+  hasDatasets = false,
   datasetId = "all",
 }) {
   const [data, setData] = useState(null);
@@ -50,7 +50,7 @@ export default function AgentMetricsPanel({
       val === undefined ||
       Number.isNaN(Number(val))
     ) {
-      return "-";
+      return "—";
     }
     const num = Number(val);
     const pct = num <= 1 ? num * 100 : num;
@@ -59,76 +59,64 @@ export default function AgentMetricsPanel({
 
   const cleanerAcc = hasDatasets
     ? formatPct(data?.cleaner_accuracy ?? data?.accuracy ?? data?.success_rate)
-    : "-";
+    : "—";
   const validatorRej = hasDatasets
     ? formatPct(data?.validator_rejection_rate ?? data?.rejection_rate ?? 0)
-    : "-";
+    : "—";
 
-  const agents = hasDatasets
-    ? [
-        {
-          key: "auditor",
-          name: "Auditor Agent",
-          role: "Schema & Anomaly Detection",
-          acc: formatPct(
+  const agents = [
+    {
+      key: "auditor",
+      name: "Auditor Agent",
+      role: "Schema & Anomaly Detection",
+      acc: hasDatasets
+        ? formatPct(
             data?.agents?.auditor?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          ),
-          rej: formatPct(
+          )
+        : "—",
+      rej: hasDatasets
+        ? formatPct(
             data?.agents?.auditor?.rejection_rate ??
               data?.validator_rejection_rate ??
               0,
-          ),
-        },
-        {
-          key: "remediator",
-          name: "Remediator Agent",
-          role: "Imputation & Format Repair",
-          acc: formatPct(
+          )
+        : "—",
+    },
+    {
+      key: "remediator",
+      name: "Remediator Agent",
+      role: "Imputation & Format Repair",
+      acc: hasDatasets
+        ? formatPct(
             data?.agents?.remediator?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          ),
-          rej: formatPct(
+          )
+        : "—",
+      rej: hasDatasets
+        ? formatPct(
             data?.agents?.remediator?.rejection_rate ??
               data?.validator_rejection_rate ??
               0,
-          ),
-        },
-        {
-          key: "validator",
-          name: "Validator Agent",
-          role: "Contract & Deterministic Rules",
-          acc: formatPct(
+          )
+        : "—",
+    },
+    {
+      key: "validator",
+      name: "Validator Agent",
+      role: "Contract & Deterministic Rules",
+      acc: hasDatasets
+        ? formatPct(
             data?.agents?.validator?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          ),
-          rej: formatPct(
+          )
+        : "—",
+      rej: hasDatasets
+        ? formatPct(
             data?.agents?.validator?.rejection_rate ??
               data?.validator_rejection_rate ??
               0,
-          ),
-        },
-      ]
-    : [
-        {
-          key: "auditor",
-          name: "Auditor Agent",
-          role: "Schema & Anomaly Detection",
-          acc: "-",
-          rej: "-",
-        },
-        {
-          key: "remediator",
-          name: "Remediator Agent",
-          role: "Imputation & Format Repair",
-          acc: "-",
-          rej: "-",
-        },
-        {
-          key: "validator",
-          name: "Validator Agent",
-          role: "Contract & Deterministic Rules",
-          acc: "-",
-          rej: "-",
-        },
-      ];
+          )
+        : "—",
+    },
+  ];
 
   return (
     <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md space-y-4">
@@ -182,10 +170,10 @@ export default function AgentMetricsPanel({
             </div>
             <div className="text-right font-mono">
               <div className="text-sm font-bold text-emerald-400">
-                {ag.acc === "-" ? "-" : `${ag.acc} Acc`}
+                {ag.acc === "—" ? "—" : `${ag.acc} Acc`}
               </div>
               <div className="text-xs text-gray-400">
-                {ag.rej === "-" ? "-" : `${ag.rej} Rej`}
+                {ag.rej === "—" ? "—" : `${ag.rej} Rej`}
               </div>
             </div>
           </div>
