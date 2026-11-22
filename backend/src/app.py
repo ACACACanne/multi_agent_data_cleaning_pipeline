@@ -1,6 +1,6 @@
 # backend/src/app.py
 """
-Datara Pro FastAPI Application Entrypoint
+RemediRA Pro FastAPI Application Entrypoint
 Registers middleware, database startup lifecycle, error handlers, and route controllers.
 Dynamically handles FHIR conversions and clinical quality audit reporting from live database state.
 """
@@ -17,12 +17,12 @@ if str(BACKEND_ROOT) not in sys.path:
 
 import logging
 from contextlib import asynccontextmanager
-from typing import Dict, Any, List
 from fastapi import FastAPI, Request, Response, Depends, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 
+from src.config.settings import settings
 from src.db.session import get_session
 from src.models.record import Record
 from src.models.metrics import Metrics
@@ -47,8 +47,8 @@ from src.routes import (
 # Set up structured logging
 logger = logging.getLogger("datara.app")
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=getattr(logging, str(settings.LOG_LEVEL or "INFO").upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 
 
@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI):
         logger.info("Database schema initialized successfully.")
     except Exception as db_err:
         logger.warning(f"Database auto-init notice: {db_err}")
-    
+
     yield
     logger.info("Shutting down Datara Pro backend gracefully.")
 
@@ -85,15 +85,22 @@ app = FastAPI(
 # -------------------------------------------------------------
 # CORS Middleware Configuration
 # -------------------------------------------------------------
+allowed_origins = list(
+    dict.fromkeys(
+        settings.get_allowed_origins()
+        + [
+            "https://multi-agent-data-cleaning-pipeline.vercel.app",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+    )
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "*"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -105,7 +112,10 @@ app.add_middleware(
 # -------------------------------------------------------------
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error during {request.method} {request.url.path}: {str(exc)}", exc_info=True)
+    logger.error(
+        f"Unhandled error during {request.method} {request.url.path}: {str(exc)}",
+        exc_info=True,
+    )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
@@ -167,7 +177,10 @@ async def export_dataset_fhir(dataset_id: int, session: Session = Depends(get_se
     ).all()
 
     if not db_records:
-        raise HTTPException(status_code=404, detail=f"No clinical records found for dataset ID {dataset_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=f"No clinical records found for dataset ID {dataset_id}",
+        )
 
     fhir_entries = []
     for r in db_records:
@@ -177,19 +190,17 @@ async def export_dataset_fhir(dataset_id: int, session: Session = Depends(get_se
         if gender not in ["male", "female", "other", "unknown"]:
             gender = "unknown"
 
-        # Construct FHIR Patient Resource
         patient_resource = {
             "fullUrl": f"urn:uuid:patient-{patient_id}",
             "resource": {
                 "resourceType": "Patient",
                 "id": f"PT-{patient_id}",
                 "gender": gender,
-                "active": True
-            }
+                "active": True,
+            },
         }
         fhir_entries.append(patient_resource)
 
-        # Construct FHIR Observation Resource for Blood Pressure vitals
         if "systolic_bp" in data and "diastolic_bp" in data:
             obs_resource = {
                 "fullUrl": f"urn:uuid:observation-bp-{r.id}",
@@ -198,24 +209,48 @@ async def export_dataset_fhir(dataset_id: int, session: Session = Depends(get_se
                     "id": f"OBS-BP-{r.id}",
                     "status": "final",
                     "code": {
-                        "coding": [{
-                            "system": "http://loinc.org",
-                            "code": "85354-9",
-                            "display": "Blood pressure panel with all children optional"
-                        }]
+                        "coding": [
+                            {
+                                "system": "http://loinc.org",
+                                "code": "85354-9",
+                                "display": "Blood pressure panel with all children optional",
+                            }
+                        ]
                     },
                     "subject": {"reference": f"Patient/PT-{patient_id}"},
                     "component": [
                         {
-                            "code": {"coding": [{"system": "http://loinc.org", "code": "8480-6", "display": "Systolic BP"}]},
-                            "valueQuantity": {"value": data.get("systolic_bp"), "unit": "mmHg"}
+                            "code": {
+                                "coding": [
+                                    {
+                                        "system": "http://loinc.org",
+                                        "code": "8480-6",
+                                        "display": "Systolic BP",
+                                    }
+                                ]
+                            },
+                            "valueQuantity": {
+                                "value": data.get("systolic_bp"),
+                                "unit": "mmHg",
+                            },
                         },
                         {
-                            "code": {"coding": [{"system": "http://loinc.org", "code": "8462-4", "display": "Diastolic BP"}]},
-                            "valueQuantity": {"value": data.get("diastolic_bp"), "unit": "mmHg"}
-                        }
-                    ]
-                }
+                            "code": {
+                                "coding": [
+                                    {
+                                        "system": "http://loinc.org",
+                                        "code": "8462-4",
+                                        "display": "Diastolic BP",
+                                    }
+                                ]
+                            },
+                            "valueQuantity": {
+                                "value": data.get("diastolic_bp"),
+                                "unit": "mmHg",
+                            },
+                        },
+                    ],
+                },
             }
             fhir_entries.append(obs_resource)
 
@@ -224,7 +259,7 @@ async def export_dataset_fhir(dataset_id: int, session: Session = Depends(get_se
         "type": "collection",
         "dataset_id": dataset_id,
         "total": len(fhir_entries),
-        "entry": fhir_entries
+        "entry": fhir_entries,
     }
 
 
@@ -237,16 +272,17 @@ async def generate_quality_report(dataset_id: int, session: Session = Depends(ge
     db_records = session.exec(
         select(Record).where(Record.dataset_id == dataset_id)
     ).all()
-    
+
     total_records = len(db_records)
     if total_records == 0:
-        raise HTTPException(status_code=404, detail=f"Dataset {dataset_id} contains no records.")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Dataset {dataset_id} contains no records.",
+        )
 
-    # Retrieve metrics stored by the multi-agent pipeline
     metrics_row = session.get(Metrics, dataset_id)
     cleaner_row = session.get(CleanerMetrics, dataset_id)
 
-    # Dynamic quality score determination
     if cleaner_row and cleaner_row.cleaned_quality is not None:
         quality_pct = round(cleaner_row.cleaned_quality * 100, 1)
     elif metrics_row and metrics_row.summary and "cleaned_quality" in metrics_row.summary:
@@ -264,7 +300,7 @@ async def generate_quality_report(dataset_id: int, session: Session = Depends(ge
         "total_records": total_records,
         "report_title": f"Data Quality & Remediation Audit Report (Dataset {dataset_id})",
         "overall_score": quality_pct,
-        "summary": f"Autonomous Multi-Agent Pipeline validated {total_records} records with {fixes_count} dynamic statistical repairs. Final verified quality score is {quality_pct}%."
+        "summary": f"Autonomous Multi-Agent Pipeline validated {total_records} records with {fixes_count} dynamic statistical repairs. Final verified quality score is {quality_pct}%.",
     }
 
 
@@ -275,6 +311,7 @@ async def generate_quality_report(dataset_id: int, session: Session = Depends(ge
 async def favicon():
     """Silences 404 errors for browser favicon requests."""
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
 
 @app.get("/", tags=["Status"])
 @app.get("/health", tags=["Status"])

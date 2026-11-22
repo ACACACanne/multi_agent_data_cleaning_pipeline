@@ -1,11 +1,11 @@
 #backend/src/routes/upload.py
 """
 Upload Route Controller
-Handles dataset ingestion (CSV & JSON), schema detection, and dataset registry.
+Handles dataset ingestion (CSV & JSON), row parsing, and dataset registry.
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, status
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import io
 import csv
 import json
@@ -13,10 +13,15 @@ import uuid
 import datetime
 import logging
 
-from src.routes.datasets import DATASETS_STORE
+from src.routes.datasets import (
+    DATASETS_STORE,
+    DATASET_SAMPLES_STORE,
+    save_persisted_storage,
+)
 
 router = APIRouter()
 logger = logging.getLogger("datara.routes.upload")
+
 
 def format_file_size(size_bytes: int) -> str:
     if size_bytes < 1024:
@@ -24,6 +29,7 @@ def format_file_size(size_bytes: int) -> str:
     elif size_bytes < 1024 * 1024:
         return f"{(size_bytes / 1024):.1f} KB"
     return f"{(size_bytes / (1024 * 1024)):.1f} MB"
+
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any])
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=Dict[str, Any], include_in_schema=False)
@@ -34,7 +40,7 @@ async def upload_dataset_file(
     dataset_name: Optional[str] = Form(None),
 ):
     """
-    Accepts CSV or JSON file uploads, parses row/column dimensions, and registers the dataset.
+    Accepts CSV or JSON file uploads, parses rows/columns, and registers the dataset.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -51,33 +57,46 @@ async def upload_dataset_file(
     try:
         contents = await file.read()
         file_size_bytes = len(contents)
-        rows_count = 0
+        parsed_rows: List[Dict[str, Any]] = []
         columns_count = 0
 
-        # Parse CSV
         if ext == "csv":
             text_content = contents.decode("utf-8", errors="replace")
-            csv_reader = csv.reader(io.StringIO(text_content))
-            header = next(csv_reader, None)
-            if header:
-                columns_count = len(header)
-                rows_count = sum(1 for _ in csv_reader)
-            else:
-                columns_count = 0
-                rows_count = 0
+            dict_reader = csv.DictReader(io.StringIO(text_content))
+            columns_count = len(dict_reader.fieldnames or [])
+            for idx, row in enumerate(dict_reader):
+                item = dict(row)
+                item.setdefault("id", f"row_{idx + 1}")
+                item.setdefault("data_status", "VALID")
+                parsed_rows.append(item)
 
-        # Parse JSON
         elif ext == "json":
             json_data = json.loads(contents.decode("utf-8", errors="replace"))
             if isinstance(json_data, list):
-                rows_count = len(json_data)
-                columns_count = len(json_data[0].keys()) if rows_count > 0 and isinstance(json_data[0], dict) else 0
+                raw_records = json_data
             elif isinstance(json_data, dict):
-                # Handle wrapped JSON like {"rows": [...]} or {"data": [...]}
-                records = json_data.get("rows") or json_data.get("data") or json_data.get("records") or [json_data]
-                rows_count = len(records)
-                columns_count = len(records[0].keys()) if rows_count > 0 and isinstance(records[0], dict) else len(json_data.keys())
+                raw_records = (
+                    json_data.get("rows")
+                    or json_data.get("data")
+                    or json_data.get("records")
+                    or [json_data]
+                )
+            else:
+                raw_records = []
 
+            for idx, rec in enumerate(raw_records):
+                if isinstance(rec, dict):
+                    item = dict(rec)
+                    item.setdefault("id", f"row_{idx + 1}")
+                    item.setdefault("data_status", "VALID")
+                    parsed_rows.append(item)
+
+            if parsed_rows:
+                columns_count = len(parsed_rows[0].keys())
+            elif isinstance(json_data, dict):
+                columns_count = len(json_data.keys())
+
+        rows_count = len(parsed_rows)
         dataset_id = f"ds_{uuid.uuid4().hex[:6]}"
         display_name = dataset_name or filename
 
@@ -86,10 +105,13 @@ async def upload_dataset_file(
             "name": display_name,
             "filename": filename,
             "rows_count": rows_count,
+            "rows": rows_count,
             "columns_count": columns_count,
             "file_size": format_file_size(file_size_bytes),
             "uploaded_at": datetime.datetime.utcnow().isoformat() + "Z",
             "status": "READY",
+            "anomalies_count": 0,
+            "anomalies": 0,
             "flags": {
                 "is_gold_standard": False,
                 "anonymized": True,
@@ -98,9 +120,13 @@ async def upload_dataset_file(
             },
         }
 
-        # Add to shared dataset store
         DATASETS_STORE.insert(0, new_dataset)
-        logger.info(f"Dataset successfully uploaded: {display_name} ({dataset_id}) with {rows_count} rows.")
+        DATASET_SAMPLES_STORE[dataset_id] = parsed_rows
+        save_persisted_storage()
+
+        logger.info(
+            f"Dataset successfully uploaded: {display_name} ({dataset_id}) with {rows_count} rows."
+        )
 
         return new_dataset
 
@@ -108,6 +134,8 @@ async def upload_dataset_file(
         raise HTTPException(status_code=400, detail="Invalid JSON file format.")
     except Exception as err:
         logger.error(f"Error processing upload: {str(err)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to process file upload: {str(err)}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to process file upload: {str(err)}"
+        )
 
 

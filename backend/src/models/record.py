@@ -1,18 +1,16 @@
 # backend/src/models/record.py
 """
-DataRA Pro - Record ORM & Tree Invariant Validation Schema
+RemediRA Pro - Record ORM & Tree Invariant Validation Schema
 Defines the SQLAlchemy Record table for database storage and
 ClinicalRecordModel for multi-agent tree invariant verification.
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
-import json
+from typing import Optional, Dict, Any, cast
 
-from sqlalchemy import Column, String, Integer, Float, DateTime, Text, JSON
+from sqlalchemy import Column, String, DateTime, JSON
 from pydantic import BaseModel, Field, model_validator
 
-# Safely import Base from the DB engine, with declarative fallback
 try:
     from src.db.engine import Base
 except ImportError:
@@ -38,6 +36,14 @@ class Record(Base):
     data_status = Column(String(32), default="VALID", index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        return cast(Dict[str, Any], self.row_data or {})
+
+    @data.setter
+    def data(self, value: Optional[Dict[str, Any]]) -> None:
+        self.row_data = value
 
 
 # Alias for backwards compatibility
@@ -65,7 +71,6 @@ class ClinicalRecordModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_tree_and_relational_invariants(self) -> "ClinicalRecordModel":
-        # 1. Tree Invariant: Hemodynamic Coherence (Systolic > Diastolic)
         if self.systolic_bp is not None and self.diastolic_bp is not None:
             if self.systolic_bp <= self.diastolic_bp:
                 raise ValueError(
@@ -78,7 +83,6 @@ class ClinicalRecordModel(BaseModel):
                     f"Hemodynamic Failure: Pulse pressure ({pulse_pressure} mmHg) is below physiological threshold (15 mmHg)."
                 )
 
-        # 2. Tree Invariant: Temporal Chronology (Admission <= Discharge)
         if self.admission_date and self.discharge_date:
             try:
                 adm = (
@@ -98,7 +102,6 @@ class ClinicalRecordModel(BaseModel):
             except (ValueError, TypeError):
                 pass
 
-        # 3. Domain Taxonomy Invariant: ICD-9 / SNOMED Syntax
         if self.diagnosis_code:
             code = str(self.diagnosis_code).strip()
             if code.startswith("ERR_") or "!!" in code or "SYNTHETIC" in code:
@@ -110,6 +113,3 @@ class ClinicalRecordModel(BaseModel):
 
 
 __all__ = ["Record", "Records", "ClinicalRecordModel"]
-
-
-

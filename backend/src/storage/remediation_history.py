@@ -1,11 +1,13 @@
 # backend/src/storage/remediation_history.py
 import os
+from pathlib import Path
 from typing import Any, Dict, List
 
 from src.utils.file_io import read_json, write_json
 
-BASE_DIR = "backend/storage/remediation"
-FILE_PATH = f"{BASE_DIR}/history.json"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BASE_DIR = BACKEND_ROOT / "storage" / "remediation"
+FILE_PATH = str(BASE_DIR / "history.json")
 
 
 def _ensure_dir():
@@ -24,4 +26,3 @@ def add_history_entry(entry: Dict[str, Any]):
     history.append(entry)
     write_json(FILE_PATH, history)
     return entry
-

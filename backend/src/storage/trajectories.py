@@ -1,14 +1,16 @@
 # backend/src/storage/trajectories.py
 import os
+from pathlib import Path
 from typing import Any, Dict
 
 from src.utils.file_io import read_json, write_json
 
-BASE_DIR = "backend/storage/trajectories"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+BASE_DIR = BACKEND_ROOT / "storage" / "trajectories"
 
 
-def _path(dataset_id: int):
-    return f"{BASE_DIR}/dataset_{dataset_id}.json"
+def _path(dataset_id: int) -> str:
+    return str(BASE_DIR / f"dataset_{dataset_id}.json")
 
 
 def _ensure_dir():
@@ -26,8 +28,5 @@ def get_trajectories(dataset_id: int) -> Dict[str, Any]:
 
 def update_trajectories(dataset_id: int, new_data: Dict[str, Any]):
     _ensure_dir()
-    # Overwrite or create the trajectories file with new_data
     write_json(_path(dataset_id), new_data)
     return new_data
-
-
