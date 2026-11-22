@@ -6,15 +6,29 @@ import { fetchMetricsSummary, fetchMetricsDatasets } from "../services/api";
 /**
  * MetricsPanel
  * Displays global data quality indicators, dimensional scores, and per-dataset health summaries.
- * Defensively extracts numeric values directly from live backend computation payloads.
+ * Defensively extracts numeric values directly from live backend computation payloads without
+ * falling back to hardcoded prototype counts when no datasets exist.
  */
-export default function MetricsPanel({ className = "" }) {
+export default function MetricsPanel({
+  className = "",
+  hasDatasets = false,
+  datasets = [],
+  metrics = null,
+  onRefresh = null,
+}) {
   const [summary, setSummary] = useState(null);
   const [datasetsMetrics, setDatasetsMetrics] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const loadMetrics = useCallback(async () => {
+    if (!hasDatasets) {
+      setSummary(null);
+      setDatasetsMetrics([]);
+      setError(null);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -23,11 +37,13 @@ export default function MetricsPanel({ className = "" }) {
         fetchMetricsDatasets().catch(() => []),
       ]);
 
-      if (sumData) setSummary(sumData);
+      setSummary(sumData || null);
       if (Array.isArray(dsData)) {
         setDatasetsMetrics(dsData);
       } else if (dsData && typeof dsData === "object") {
         setDatasetsMetrics(Object.values(dsData));
+      } else {
+        setDatasetsMetrics([]);
       }
     } catch (err) {
       console.error("Failed to load metrics panel data:", err);
@@ -35,15 +51,22 @@ export default function MetricsPanel({ className = "" }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hasDatasets]);
 
   useEffect(() => {
     loadMetrics();
   }, [loadMetrics]);
 
+  const handleRefreshClick = async () => {
+    await loadMetrics();
+    if (typeof onRefresh === "function") {
+      await onRefresh();
+    }
+  };
+
   // Safe score formatter (handles 0.94 -> 94.0%, 94 -> 94.0%, null -> —)
   const formatScore = (val) => {
-    if (val === null || val === undefined) return "—";
+    if (!hasDatasets || val === null || val === undefined) return "—";
     const num = Number(val);
     if (!Number.isFinite(num)) return "—";
     return num <= 1.0 && num > 0
@@ -69,7 +92,7 @@ export default function MetricsPanel({ className = "" }) {
   // Safe issue count extractor (handles numbers, strings, and objects like { missing_values, ... })
   const extractCount = (val) => {
     if (val === null || val === undefined) return 0;
-    if (typeof val === "number") return val;
+    if (typeof val === "number") return Number.isFinite(val) ? val : 0;
     if (typeof val === "string" && !Number.isNaN(Number(val))) {
       return Number(val);
     }
@@ -104,57 +127,71 @@ export default function MetricsPanel({ className = "" }) {
     );
   };
 
-  // 1. Dynamic Quality Dimensions (Unwraps objects and scalar numbers cleanly)
+  const activeSummary = hasDatasets
+    ? summary || metrics?.summary || metrics || null
+    : null;
+  const activeDatasetList = hasDatasets
+    ? datasetsMetrics.length > 0
+      ? datasetsMetrics
+      : Array.isArray(datasets)
+        ? datasets
+        : []
+    : [];
+
+  // 1. Dynamic Quality Dimensions
   const completeness = safeFloat(
-    summary?.completeness_score ??
-      summary?.completeness ??
-      summary?.dimensional_breakdown?.completeness,
+    activeSummary?.completeness_score ??
+      activeSummary?.completeness ??
+      activeSummary?.dimensional_breakdown?.completeness,
   );
   const accuracy = safeFloat(
-    summary?.accuracy_score ??
-      summary?.accuracy ??
-      summary?.record_accuracy ??
-      summary?.dimensional_breakdown?.accuracy,
+    activeSummary?.accuracy_score ??
+      activeSummary?.accuracy ??
+      activeSummary?.record_accuracy ??
+      activeSummary?.dimensional_breakdown?.accuracy,
   );
   const consistency = safeFloat(
-    summary?.consistency_score ??
-      summary?.consistency ??
-      summary?.dimensional_breakdown?.consistency,
+    activeSummary?.consistency_score ??
+      activeSummary?.consistency ??
+      activeSummary?.dimensional_breakdown?.consistency,
   );
   const validity = safeFloat(
-    summary?.validity_score ??
-      summary?.validity ??
-      summary?.dimensional_breakdown?.validity,
+    activeSummary?.validity_score ??
+      activeSummary?.validity ??
+      activeSummary?.dimensional_breakdown?.validity,
   );
 
-  // 2. Evaluated Records & Anomaly Counts with dataset sum fallbacks
-  const fallbackTotalRecords = datasetsMetrics.reduce(
-    (acc, d) => acc + (d.total_records ?? d.rows_count ?? d.rows ?? 299),
+  // 2. Evaluated Records & Anomaly Counts (0 when no datasets exist)
+  const fallbackTotalRecords = activeDatasetList.reduce(
+    (acc, d) =>
+      acc + (Number(d.total_records ?? d.rows_count ?? d.rows ?? 0) || 0),
     0,
   );
-  const totalRecords =
-    safeFloat(
-      summary?.total_records_evaluated ??
-        summary?.records_evaluated ??
-        summary?.total_records_analyzed ??
-        summary?.total_records ??
-        summary?.total_rows,
-    ) ?? (fallbackTotalRecords > 0 ? fallbackTotalRecords : 898);
+  const totalRecords = hasDatasets
+    ? (safeFloat(
+        activeSummary?.total_records_evaluated ??
+          activeSummary?.records_evaluated ??
+          activeSummary?.total_records_analyzed ??
+          activeSummary?.total_records ??
+          activeSummary?.total_rows,
+      ) ?? fallbackTotalRecords)
+    : 0;
 
-  const fallbackTotalAnomalies = datasetsMetrics.reduce(
+  const fallbackTotalAnomalies = activeDatasetList.reduce(
     (acc, d) =>
       acc + extractCount(d.anomalies ?? d.issues ?? d.anomalies_count ?? 0),
     0,
   );
-  const totalAnomalies =
-    extractCount(
-      summary?.detected_anomalies ??
-        summary?.total_anomalies_detected ??
-        summary?.total_anomalies ??
-        summary?.issues_breakdown ??
-        summary?.total_issues ??
-        summary?.actions,
-    ) || fallbackTotalAnomalies;
+  const totalAnomalies = hasDatasets
+    ? extractCount(
+        activeSummary?.detected_anomalies ??
+          activeSummary?.total_anomalies_detected ??
+          activeSummary?.total_anomalies ??
+          activeSummary?.issues_breakdown ??
+          activeSummary?.total_issues ??
+          activeSummary?.actions,
+      ) || fallbackTotalAnomalies
+    : 0;
 
   return (
     <div
@@ -171,9 +208,9 @@ export default function MetricsPanel({ className = "" }) {
         </div>
         <button
           type="button"
-          onClick={loadMetrics}
-          disabled={loading}
-          className="px-2.5 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition disabled:opacity-50 cursor-pointer"
+          onClick={handleRefreshClick}
+          disabled={!hasDatasets || loading}
+          className="px-2.5 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:border-brand-accent transition disabled:opacity-40 cursor-pointer"
         >
           {loading ? "Refreshing..." : "Refresh"}
         </button>
@@ -221,9 +258,7 @@ export default function MetricsPanel({ className = "" }) {
         <div className="flex items-center justify-between">
           <span className="text-gray-400">Total Records Evaluated:</span>
           <span className="font-mono font-bold text-gray-200">
-            {totalRecords !== null
-              ? Number(totalRecords).toLocaleString()
-              : "0"}
+            {Number(totalRecords).toLocaleString()}
           </span>
         </div>
         <div className="flex items-center justify-between">
@@ -237,35 +272,34 @@ export default function MetricsPanel({ className = "" }) {
           </span>
         </div>
 
-        {summary?.issues_breakdown && renderBreakdown(summary.issues_breakdown)}
+        {hasDatasets &&
+          activeSummary?.issues_breakdown &&
+          renderBreakdown(activeSummary.issues_breakdown)}
       </div>
 
       {/* Per Dataset Breakdown */}
-      {datasetsMetrics.length > 0 && (
+      {activeDatasetList.length > 0 && (
         <div className="space-y-2 pt-1">
           <div className="text-xs font-semibold text-gray-300">
             Dataset Quality Breakdown
           </div>
           <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-            {datasetsMetrics.map((d) => {
+            {activeDatasetList.map((d) => {
               const isSynthetic =
                 Boolean(d.synthetic_injected) ||
                 String(d.id).startsWith("ds_syn_") ||
                 d.name?.includes("Synthetic");
 
               const anomaliesCount = extractCount(
-                d.anomalies ??
-                  d.issues ??
-                  d.anomalies_count ??
-                  (isSynthetic ? 45 : 0),
+                d.anomalies ?? d.issues ?? d.anomalies_count ?? 0,
               );
 
-              // Pre-clean score takes precedence for synthetic datasets
-              const score = isSynthetic
-                ? (safeFloat(d.quality_score ?? d.score) ?? 0.76)
-                : safeFloat(
-                    d.quality_score ?? d.post_clean_score ?? d.completeness,
-                  );
+              const score = safeFloat(
+                d.quality_score ??
+                  d.score ??
+                  d.post_clean_score ??
+                  d.completeness,
+              );
 
               const isNeedsRemediation =
                 d.health_status === "NEEDS_FIX" ||
@@ -323,4 +357,8 @@ export default function MetricsPanel({ className = "" }) {
 
 MetricsPanel.propTypes = {
   className: PropTypes.string,
+  hasDatasets: PropTypes.bool,
+  datasets: PropTypes.array,
+  metrics: PropTypes.object,
+  onRefresh: PropTypes.func,
 };
