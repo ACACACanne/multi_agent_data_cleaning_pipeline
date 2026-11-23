@@ -4,9 +4,17 @@ import PropTypes from "prop-types";
 import { client } from "../utils/apiClient";
 import { extractErrorMessage } from "../utils/errorUtils";
 
+const AGENT_METRICS_ENDPOINTS = [
+  "/api/agents/metrics",
+  "/api/metrics/agents",
+  "/api/cleaner/metrics",
+];
+
 export default function AgentMetricsPanel({
   hasDatasets = false,
   datasetId = "all",
+  refreshTrigger = 0,
+  fallbackMetrics = null,
 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -21,33 +29,66 @@ export default function AgentMetricsPanel({
 
     setLoading(true);
     setError(null);
-    try {
-      const params =
-        datasetId && String(datasetId) !== "all"
-          ? { dataset_id: datasetId }
-          : undefined;
-      const res = await client.get("/api/agents/metrics", { params });
-      setData(res.data || null);
-    } catch (err) {
+
+    const params =
+      datasetId && String(datasetId) !== "all"
+        ? { dataset_id: datasetId }
+        : undefined;
+
+    let resolvedData = null;
+    let lastError = null;
+
+    for (const endpoint of AGENT_METRICS_ENDPOINTS) {
+      try {
+        const res = await client.get(endpoint, { params });
+        if (res && res.data && typeof res.data === "object") {
+          resolvedData =
+            res.data.agent_metrics || res.data.agents_metrics || res.data;
+          lastError = null;
+          break;
+        }
+      } catch (err) {
+        const status = err?.response?.status;
+        lastError = err;
+        if (status && status !== 404) {
+          break;
+        }
+      }
+    }
+
+    if (resolvedData) {
+      setData(resolvedData);
+      setError(null);
+    } else if (fallbackMetrics && typeof fallbackMetrics === "object") {
+      setData(fallbackMetrics);
+      setError(null);
+    } else if (lastError && lastError?.response?.status !== 404) {
       const { text } = extractErrorMessage(
-        err,
+        lastError,
         "Failed to load agent metrics.",
       );
       setError(text);
-    } finally {
-      setLoading(false);
+      setData(null);
+    } else {
+      // Suppress 404 banner when the dedicated agent metrics endpoint isn't exposed
+      setData(null);
+      setError(null);
     }
-  }, [hasDatasets, datasetId]);
+
+    setLoading(false);
+  }, [hasDatasets, datasetId, fallbackMetrics]);
 
   useEffect(() => {
     loadAgentMetrics();
-  }, [loadAgentMetrics]);
+  }, [loadAgentMetrics, refreshTrigger]);
 
   const formatPct = (val) => {
     if (
       !hasDatasets ||
+      !data ||
       val === null ||
       val === undefined ||
+      val === "" ||
       Number.isNaN(Number(val))
     ) {
       return "—";
@@ -57,64 +98,66 @@ export default function AgentMetricsPanel({
     return `${pct.toFixed(1)}%`;
   };
 
-  const cleanerAcc = hasDatasets
-    ? formatPct(data?.cleaner_accuracy ?? data?.accuracy ?? data?.success_rate)
-    : "—";
-  const validatorRej = hasDatasets
-    ? formatPct(data?.validator_rejection_rate ?? data?.rejection_rate ?? 0)
-    : "—";
+  const cleanerAcc = formatPct(
+    data?.cleaner_accuracy ??
+      data?.accuracy ??
+      data?.record_accuracy ??
+      data?.success_rate,
+  );
+  const validatorRej = formatPct(
+    data?.validator_rejection_rate ?? data?.rejection_rate,
+  );
 
   const agents = [
     {
       key: "auditor",
       name: "Auditor Agent",
       role: "Schema & Anomaly Detection",
-      acc: hasDatasets
-        ? formatPct(
-            data?.agents?.auditor?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          )
-        : "—",
-      rej: hasDatasets
-        ? formatPct(
-            data?.agents?.auditor?.rejection_rate ??
-              data?.validator_rejection_rate ??
-              0,
-          )
-        : "—",
+      acc: formatPct(
+        data?.agents?.auditor?.accuracy ??
+          data?.auditor_accuracy ??
+          data?.cleaner_accuracy ??
+          data?.success_rate,
+      ),
+      rej: formatPct(
+        data?.agents?.auditor?.rejection_rate ??
+          data?.auditor_rejection_rate ??
+          data?.validator_rejection_rate ??
+          data?.rejection_rate,
+      ),
     },
     {
       key: "remediator",
       name: "Remediator Agent",
       role: "Imputation & Format Repair",
-      acc: hasDatasets
-        ? formatPct(
-            data?.agents?.remediator?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          )
-        : "—",
-      rej: hasDatasets
-        ? formatPct(
-            data?.agents?.remediator?.rejection_rate ??
-              data?.validator_rejection_rate ??
-              0,
-          )
-        : "—",
+      acc: formatPct(
+        data?.agents?.remediator?.accuracy ??
+          data?.remediator_accuracy ??
+          data?.cleaner_accuracy ??
+          data?.success_rate,
+      ),
+      rej: formatPct(
+        data?.agents?.remediator?.rejection_rate ??
+          data?.remediator_rejection_rate ??
+          data?.validator_rejection_rate ??
+          data?.rejection_rate,
+      ),
     },
     {
       key: "validator",
       name: "Validator Agent",
       role: "Contract & Deterministic Rules",
-      acc: hasDatasets
-        ? formatPct(
-            data?.agents?.validator?.accuracy ?? data?.cleaner_accuracy ?? 0,
-          )
-        : "—",
-      rej: hasDatasets
-        ? formatPct(
-            data?.agents?.validator?.rejection_rate ??
-              data?.validator_rejection_rate ??
-              0,
-          )
-        : "—",
+      acc: formatPct(
+        data?.agents?.validator?.accuracy ??
+          data?.validator_accuracy ??
+          data?.cleaner_accuracy ??
+          data?.success_rate,
+      ),
+      rej: formatPct(
+        data?.agents?.validator?.rejection_rate ??
+          data?.validator_rejection_rate ??
+          data?.rejection_rate,
+      ),
     },
   ];
 
@@ -186,4 +229,6 @@ export default function AgentMetricsPanel({
 AgentMetricsPanel.propTypes = {
   hasDatasets: PropTypes.bool,
   datasetId: PropTypes.string,
+  refreshTrigger: PropTypes.number,
+  fallbackMetrics: PropTypes.object,
 };

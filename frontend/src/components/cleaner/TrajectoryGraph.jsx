@@ -15,7 +15,6 @@ import {
 } from "chart.js";
 import "chartjs-adapter-date-fns";
 
-// Guard duplicate registration across Vite HMR cycles
 if (!ChartJS._registered) {
   ChartJS.register(
     LineController,
@@ -31,19 +30,20 @@ if (!ChartJS._registered) {
   ChartJS._registered = true;
 }
 
-/**
- * TrajectoryGraph
- *
- * Visualizes multi-iteration quality trajectory curves over time for Baseline,
- * Autonomous Agent, and Manual Remediation.
- * Defensively parses raw numbers, numeric strings, and timestamp/step object records.
- */
 export default function TrajectoryGraph({
-  datasetId = "ds_001",
+  datasetId = null,
+  hasDatasets = false,
   trajectories = { baseline: [], agent: [], manual: [] },
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
+
+  const hasSeriesData =
+    hasDatasets &&
+    ((Array.isArray(trajectories?.agent) && trajectories.agent.length > 0) ||
+      (Array.isArray(trajectories?.manual) && trajectories.manual.length > 0) ||
+      (Array.isArray(trajectories?.baseline) &&
+        trajectories.baseline.length > 0));
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext?.("2d");
@@ -52,85 +52,65 @@ export default function TrajectoryGraph({
     if (chartRef.current) {
       try {
         chartRef.current.destroy();
-      } catch (e) {
+      } catch {
         // Ignore destruction errors on unmount
       }
       chartRef.current = null;
     }
 
-    // Normalizes entries to { x: Date, y: number (0-100%) } with dynamic synthetic fallbacks
-    const toPoints = (entries, seriesType) => {
-      let list = Array.isArray(entries) && entries.length > 0 ? entries : [];
+    if (!hasSeriesData) return;
 
-      // Generate realistic trajectory curve if backend array is empty
-      if (list.length === 0) {
-        const isSyn = String(datasetId).startsWith("ds_syn_");
-        const start = isSyn ? 65 : 82;
-        list = Array.from({ length: 10 }, (_, i) => {
-          const step = i + 1;
-          let score = 80;
-          if (seriesType === "baseline") {
-            score = Math.max(45, start - step * 1.5);
-          } else if (seriesType === "agent") {
-            score = Math.min(
-              99.4,
-              start + (100 - start) * (1 - Math.exp(-0.7 * step)),
-            );
-          } else if (seriesType === "manual") {
-            score = Math.min(92.5, start + (92.5 - start) * (step / 10));
-          }
-          return { step, quality_score: score };
-        });
-      }
-
+    const toPoints = (entries) => {
+      const list = Array.isArray(entries) ? entries : [];
       const now = Date.now();
-      return list.map((e, idx) => {
-        let rawQ = 80;
-
-        if (typeof e === "number") {
-          rawQ = e;
-        } else if (typeof e === "string") {
-          const parsed = parseFloat(e);
-          rawQ = Number.isFinite(parsed) ? parsed : 80;
-        } else if (typeof e === "object" && e !== null) {
-          rawQ =
-            e.quality_score ?? e.quality ?? e.score ?? e.value ?? e.y ?? 80;
-          rawQ =
-            typeof rawQ === "number" ? rawQ : parseFloat(String(rawQ)) || 80;
-        }
-
-        // Normalize decimal fractions (0.85 -> 85.0)
-        if (rawQ <= 1.0 && rawQ > 0) {
-          rawQ = rawQ * 100;
-        }
-
-        let dateVal = null;
-        if (typeof e === "object" && e !== null && e.timestamp) {
-          const d = new Date(
-            typeof e.timestamp === "number" ? e.timestamp : String(e.timestamp),
-          );
-          if (!Number.isNaN(d.getTime())) {
-            dateVal = d;
+      return list
+        .map((e, idx) => {
+          let rawQ = null;
+          if (typeof e === "number") {
+            rawQ = e;
+          } else if (typeof e === "string") {
+            const parsed = parseFloat(e);
+            rawQ = Number.isFinite(parsed) ? parsed : null;
+          } else if (typeof e === "object" && e !== null) {
+            const v = e.quality_score ?? e.quality ?? e.score ?? e.value ?? e.y;
+            if (v !== undefined && v !== null) {
+              const parsed = typeof v === "number" ? v : parseFloat(String(v));
+              rawQ = Number.isFinite(parsed) ? parsed : null;
+            }
           }
-        }
+          if (rawQ === null) return null;
+          if (rawQ <= 1.0 && rawQ > 0) {
+            rawQ = rawQ * 100;
+          }
 
-        // Sequential daily points fallback for iteration steps
-        if (!dateVal) {
-          dateVal = new Date(
-            now - (list.length - idx - 1) * 24 * 60 * 60 * 1000,
-          );
-        }
+          let dateVal = null;
+          if (typeof e === "object" && e !== null && e.timestamp) {
+            const d = new Date(
+              typeof e.timestamp === "number"
+                ? e.timestamp
+                : String(e.timestamp),
+            );
+            if (!Number.isNaN(d.getTime())) {
+              dateVal = d;
+            }
+          }
+          if (!dateVal) {
+            dateVal = new Date(
+              now - (list.length - idx - 1) * 24 * 60 * 60 * 1000,
+            );
+          }
 
-        return {
-          x: dateVal,
-          y: Number.isFinite(rawQ) ? Number(rawQ.toFixed(1)) : 80,
-        };
-      });
+          return {
+            x: dateVal,
+            y: Number(rawQ.toFixed(1)),
+          };
+        })
+        .filter(Boolean);
     };
 
-    const baselineData = toPoints(trajectories?.baseline, "baseline");
-    const agentData = toPoints(trajectories?.agent, "agent");
-    const manualData = toPoints(trajectories?.manual, "manual");
+    const baselineData = toPoints(trajectories?.baseline);
+    const agentData = toPoints(trajectories?.agent);
+    const manualData = toPoints(trajectories?.manual);
 
     chartRef.current = new ChartJS(ctx, {
       type: "line",
@@ -162,7 +142,7 @@ export default function TrajectoryGraph({
             fill: false,
           },
           {
-            label: "Raw Baseline (No Cleaning)",
+            label: "Raw Baseline",
             data: baselineData,
             borderColor: "#f43f5e",
             backgroundColor: "rgba(244, 63, 94, 0.08)",
@@ -201,7 +181,7 @@ export default function TrajectoryGraph({
             },
           },
           y: {
-            min: 40,
+            min: 0,
             max: 100,
             ticks: {
               color: "#94a3b8",
@@ -259,53 +239,79 @@ export default function TrajectoryGraph({
       if (chartRef.current) {
         try {
           chartRef.current.destroy();
-        } catch (e) {
+        } catch {
           // Ignore cleanup errors
         }
         chartRef.current = null;
       }
     };
-  }, [datasetId, JSON.stringify(trajectories)]);
+  }, [datasetId, hasSeriesData, JSON.stringify(trajectories)]);
+
+  const lastAgentVal =
+    hasSeriesData &&
+    Array.isArray(trajectories?.agent) &&
+    trajectories.agent.length > 0
+      ? (() => {
+          const last = trajectories.agent[trajectories.agent.length - 1];
+          const raw =
+            typeof last === "object" && last !== null
+              ? (last.quality_score ?? last.quality ?? last.score ?? last.value)
+              : last;
+          const num = Number(raw);
+          if (!Number.isFinite(num)) return "—";
+          return `${(num <= 1.0 && num > 0 ? num * 100 : num).toFixed(1)}%`;
+        })()
+      : "—";
 
   return (
     <div className="bg-brand-light p-5 rounded-xl border border-brand-accent/20 shadow-md">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
         <div>
           <h3 className="text-base font-bold text-brand-accent">
-            Quality Trajectories {datasetId ? `(${datasetId})` : ""}
+            Quality Trajectories ({datasetId || "—"})
           </h3>
           <p className="text-xs text-gray-400">
-            Multi-iteration quality progression: Autonomous Agent vs. Manual
-            Remediation vs. Degrading Baseline
+            Multi-iteration quality progression from pipeline telemetry
           </p>
         </div>
       </div>
 
-      <div
-        style={{ height: 260 }}
-        className="relative w-full rounded-lg bg-brand-dark/50 p-2 border border-brand-accent/10"
-      >
-        <canvas
-          ref={canvasRef}
-          role="img"
-          aria-label={`Quality trajectories chart for dataset ${datasetId || "unknown"}`}
-          className="w-full h-full"
-        />
-      </div>
-
-      <div className="mt-3 flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => chartRef.current?.resetZoom?.()}
-          className="px-3 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:bg-brand-accent/10 transition cursor-pointer"
+      {!hasSeriesData ? (
+        <div
+          style={{ height: 180 }}
+          className="flex items-center justify-center rounded-lg border border-dashed border-brand-accent/15 bg-brand-dark/40 text-xs text-gray-400 italic"
         >
-          Reset Zoom
-        </button>
-        <span className="text-xs text-gray-400 font-mono">
-          Final Trajectory:{" "}
-          <strong className="text-emerald-400">99.4% Score</strong>
-        </span>
-      </div>
+          No trajectory telemetry available (—).
+        </div>
+      ) : (
+        <>
+          <div
+            style={{ height: 260 }}
+            className="relative w-full rounded-lg bg-brand-dark/50 p-2 border border-brand-accent/10"
+          >
+            <canvas
+              ref={canvasRef}
+              role="img"
+              aria-label={`Quality trajectories chart for dataset ${datasetId || "none"}`}
+              className="w-full h-full"
+            />
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => chartRef.current?.resetZoom?.()}
+              className="px-3 py-1 text-xs rounded bg-brand-dark text-gray-200 border border-brand-accent/20 hover:bg-brand-accent/10 transition cursor-pointer"
+            >
+              Reset Zoom
+            </button>
+            <span className="text-xs text-gray-400 font-mono">
+              Latest Score:{" "}
+              <strong className="text-emerald-400">{lastAgentVal}</strong>
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -325,6 +331,7 @@ const TrajectoryItemPropType = PropTypes.oneOfType([
 
 TrajectoryGraph.propTypes = {
   datasetId: PropTypes.string,
+  hasDatasets: PropTypes.bool,
   trajectories: PropTypes.shape({
     baseline: PropTypes.arrayOf(TrajectoryItemPropType),
     agent: PropTypes.arrayOf(TrajectoryItemPropType),
