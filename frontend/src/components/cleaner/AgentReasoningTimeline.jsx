@@ -1,3 +1,4 @@
+// frontend/src/components/cleaner/AgentReasoningTimeline.jsx
 import React from "react";
 import PropTypes from "prop-types";
 

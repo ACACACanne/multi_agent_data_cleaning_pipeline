@@ -1,7 +1,7 @@
 # backend/src/routes/cleaner.py
 """
-Cleaner Route Controller (Production Upgraded)
-- Executes agentic cleaning over active production datasets with cohort-aware imputation.
+Cleaner Route Controller (Live Telemetry Only)
+- Executes agentic cleaning over active datasets with cohort-aware imputation.
 - Updates cleaned records in DATASET_SAMPLES_STORE and caches exports in CLEANED_EXPORTS_STORE.
 - Records real remediation history entries per cleaning run.
 - Formats export filenames with 'clean_<original_name>'.
@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import io
 import json
 import logging
+import math
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
@@ -43,27 +44,43 @@ logger = logging.getLogger("datara.routes.cleaner")
 
 graph_engine = AutonomousRemediationGraph()
 
-# Isolated cache for downloading cleaned exports
 CLEANED_EXPORTS_STORE: Dict[str, Dict[str, Any]] = {}
 LATEST_CLEANER_RESULTS: Dict[str, Any] = {}
 
-HOURLY_RATE_GBP = 71.11
-MANUAL_HOURS_PER_DATASET = 4.5
+
+def _is_missing_or_sentinel(val: Any) -> bool:
+    if val is None:
+        return True
+    if isinstance(val, float) and math.isnan(val):
+        return True
+    return str(val).strip() in {"?", "", "nan", "NaN", "None", "null"}
+
+
+def _safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
+    if val is None or isinstance(val, bool):
+        return default
+    if isinstance(val, (int, float)):
+        return float(val) if math.isfinite(float(val)) else default
+    text = str(val).strip()
+    if not text or text in {"?", "nan", "NaN", "None", "null"}:
+        return default
+    try:
+        parsed = float(text)
+        return parsed if math.isfinite(parsed) else default
+    except (TypeError, ValueError):
+        return default
 
 
 def _compute_cohort_age_median(rows: List[Dict[str, Any]]) -> int:
-    """Computes a realistic median age from valid rows in the active cohort."""
+    """Computes a median age from valid rows in the active cohort."""
     valid_ages: List[float] = []
     for r in rows:
         val = r.get("age")
-        if val is None or val in ["?", "", "nan", "NaN"]:
+        if _is_missing_or_sentinel(val):
             continue
-        try:
-            num = float(val)
-            if 1.0 <= num <= 105.0:
-                valid_ages.append(num)
-        except (TypeError, ValueError):
-            continue
+        num = _safe_float(val)
+        if num is not None and 1.0 <= num <= 105.0:
+            valid_ages.append(num)
     if valid_ages:
         return int(round(float(np.median(valid_ages))))
     return 55
@@ -76,7 +93,7 @@ def _record_remediation_log(
     total_count: int,
     details_summary: str,
 ) -> None:
-    """Persists a live remediation entry to JSON storage and DB when applicable."""
+    """Persists a live remediation entry to history storage and DB when applicable."""
     now_iso = datetime.now(timezone.utc).isoformat()
     add_history_entry(
         {
@@ -86,7 +103,6 @@ def _record_remediation_log(
             "proposed_fix": details_summary,
             "action": "AGENTIC_CLEAN_PIPELINE",
             "status": "APPLIED",
-            "confidence": 0.99,
             "records_evaluated": total_count,
             "anomalies_repaired": repaired_count,
             "timestamp": now_iso,
@@ -113,13 +129,13 @@ def _record_remediation_log(
 
 
 # ===========================================================================
-# 1. CORE REMEDIATION ENGINE (COHORT-AWARE)
+# 1. CORE REMEDIATION ENGINE
 # ===========================================================================
 def remediate_record(
     row: Dict[str, Any], cohort_age_fallback: int = 55
 ) -> Tuple[Dict[str, Any], bool, List[str]]:
     """
-    Applies cohort-aware imputation, physiological/numeric bounds,
+    Applies cohort-aware imputation, numeric/physiological bounds,
     chronological sequence alignment, and taxonomy cleanup.
     Returns (sanitized_row, repaired_bool, changed_fields).
     """
@@ -127,65 +143,57 @@ def remediate_record(
     repaired = False
     changed_fields: List[str] = []
 
-    # 1. Age validation & cohort-median imputation (avoids implausible 120 fallback)
     if "age" in r:
         raw_age = r.get("age")
-        age_valid = False
-        if raw_age not in [None, "?", "", "nan", "NaN"]:
-            try:
-                num_age = float(str(raw_age).strip())
-                if 1.0 <= num_age <= 105.0:
-                    r["age"] = int(round(num_age))
-                    age_valid = True
-                    if str(raw_age).strip() != str(r["age"]):
-                        repaired = True
-                        changed_fields.append("age")
-            except (TypeError, ValueError):
-                age_valid = False
-        if not age_valid:
+        num_age = None if _is_missing_or_sentinel(raw_age) else _safe_float(raw_age)
+        if num_age is not None and 1.0 <= num_age <= 105.0:
+            rounded_age = int(round(num_age))
+            r["age"] = rounded_age
+            if str(raw_age).strip() != str(rounded_age):
+                repaired = True
+                changed_fields.append("age")
+        else:
             r["age"] = int(cohort_age_fallback)
             repaired = True
             changed_fields.append("age")
 
-    # 2. Blood pressure / hemodynamic bounds and pulse pressure order
     if "systolic_bp" in r and "diastolic_bp" in r:
         bp_changed = False
-        try:
-            raw_s_value = r.get("systolic_bp")
-            raw_d_value = r.get("diastolic_bp")
-            if raw_s_value is None or raw_d_value is None:
-                raise ValueError
-            raw_s = float(raw_s_value)
-            raw_d = float(raw_d_value)
+        raw_s = _safe_float(r.get("systolic_bp"))
+        raw_d = _safe_float(r.get("diastolic_bp"))
+        if raw_s is None or raw_d is None:
+            r["systolic_bp"] = 120
+            r["diastolic_bp"] = 80
+            bp_changed = True
+        else:
             if raw_s < raw_d:
                 raw_s, raw_d = raw_d, raw_s
                 bp_changed = True
-            if raw_s < 80 or raw_s > 180:
+            if raw_s < 80.0 or raw_s > 180.0:
                 raw_s = 122.0
                 bp_changed = True
-            if raw_d < 40 or raw_d > 110:
+            if raw_d < 40.0 or raw_d > 110.0:
                 raw_d = 78.0
                 bp_changed = True
             r["systolic_bp"] = int(round(raw_s))
             r["diastolic_bp"] = int(round(raw_d))
-        except (TypeError, ValueError):
-            r["systolic_bp"] = 120
-            r["diastolic_bp"] = 80
-            bp_changed = True
         if bp_changed:
             repaired = True
             changed_fields.extend(["systolic_bp", "diastolic_bp"])
 
-    # 3. Chronological sequence realignment (admission_date <= discharge_date)
     adm = r.get("admission_date")
     dis = r.get("discharge_date")
     date_changed = False
-    if adm in [None, "?", ""]:
+    adm_missing = _is_missing_or_sentinel(adm)
+    dis_missing = _is_missing_or_sentinel(dis)
+    if adm_missing and dis_missing:
         r["admission_date"] = "2026-01-15"
-        if dis in [None, "?", ""]:
-            r["discharge_date"] = "2026-01-22"
+        r["discharge_date"] = "2026-01-22"
         date_changed = True
-    elif dis in [None, "?", ""]:
+    elif adm_missing:
+        r["admission_date"] = "2026-01-15"
+        date_changed = True
+    elif dis_missing:
         r["discharge_date"] = "2026-01-22"
         date_changed = True
     elif str(adm) > str(dis):
@@ -195,17 +203,15 @@ def remediate_record(
         repaired = True
         changed_fields.extend(["admission_date", "discharge_date"])
 
-    # 4. Sentinel missing token imputation for optional clinical fields
     for sentinel_col, fallback_val in [
         ("payer_code", "MC"),
         ("weight", 72.5),
     ]:
-        if sentinel_col in r and r.get(sentinel_col) in ["?", None, ""]:
+        if sentinel_col in r and _is_missing_or_sentinel(r.get(sentinel_col)):
             r[sentinel_col] = fallback_val
             repaired = True
             changed_fields.append(sentinel_col)
 
-    # 5. Diagnostic / taxonomy code cleanup
     for diag_col, fallback_code in [("diag_1", "250.00"), ("diagnosis_code", "414.01")]:
         if diag_col in r:
             val_str = str(r.get(diag_col, ""))
@@ -215,7 +221,6 @@ def remediate_record(
                 repaired = True
                 changed_fields.append(diag_col)
 
-    # 6. Status normalization
     if r.get("data_status") != "VALID":
         r["data_status"] = "VALID"
         repaired = True
@@ -244,6 +249,48 @@ def is_active_input_dataset(d: Dict[str, Any]) -> bool:
     return not (is_excluded or is_hidden)
 
 
+def _find_cached_export(target_id: str) -> Optional[Dict[str, Any]]:
+    """Finds the most recent cached cleaned export matching target_id (or any when 'all')."""
+    for exp in reversed(list(CLEANED_EXPORTS_STORE.values())):
+        exp_ds_id = str(exp.get("source_dataset_id", "")).strip()
+        if target_id == "all" or exp_ds_id == target_id:
+            if exp.get("records"):
+                return exp
+    return None
+
+
+def _build_cleaned_records_for_scope(target_id: str) -> Tuple[List[Dict[str, Any]], str]:
+    active_ids = (
+        [
+            str(d.get("id"))
+            for d in DATASETS_STORE
+            if is_active_input_dataset(d) and d.get("id")
+        ]
+        if target_id == "all"
+        else [target_id]
+    )
+
+    cleaned_records: List[Dict[str, Any]] = []
+    source_name = "cohort"
+    for d_id in active_ids:
+        source_meta = next(
+            (d for d in DATASETS_STORE if str(d.get("id")) == str(d_id)), {}
+        )
+        source_name = str(source_meta.get("name", d_id))
+        raw_recs = DATASET_SAMPLES_STORE.get(str(d_id), [])
+        age_fallback = _compute_cohort_age_median(raw_recs)
+        for r in raw_recs:
+            clean_row, _, _ = remediate_record(r, cohort_age_fallback=age_fallback)
+            cleaned_records.append(clean_row)
+
+    out_base = (
+        "clean_all_datasets"
+        if target_id == "all"
+        else format_clean_export_filename(source_name, target_id)
+    )
+    return cleaned_records, out_base
+
+
 # ===========================================================================
 # 2. DYNAMIC SUGGESTION ENGINE
 # ===========================================================================
@@ -270,21 +317,10 @@ def generate_dataset_suggestions(
                 "id": f"sug_{dataset_id}_{target_col}_impute",
                 "column": target_col,
                 "field": "Missingness",
-                "action": "Cohort Median & KNN Imputation",
+                "action": "Cohort Median Imputation",
                 "recommendation": f"Impute {null_count} null observation(s) in '{target_col}'.",
-                "confidence": 0.98,
                 "impact": f"+{round((null_count / len(df)) * 100, 1)}% Completeness",
             })
-    else:
-        suggestions.append({
-            "id": f"sug_{dataset_id}_impute_opt",
-            "column": "Completeness",
-            "field": "Null Value Protection",
-            "action": "Complete Observation Certified",
-            "recommendation": "100% complete records verified across all dimensions.",
-            "confidence": 1.0,
-            "impact": "+0.0% Null Delta",
-        })
 
     if "systolic_bp" in df.columns and "diastolic_bp" in df.columns:
         sbp = pd.to_numeric(df["systolic_bp"], errors="coerce")
@@ -294,10 +330,9 @@ def generate_dataset_suggestions(
             suggestions.append({
                 "id": f"sug_{dataset_id}_bp_inversion",
                 "column": "systolic_bp",
-                "field": "Hemodynamic Invariant",
-                "action": "Pulse Pressure Inversion Swap",
-                "recommendation": f"Realign {inversions} inversion(s) where Systolic BP < Diastolic BP.",
-                "confidence": 1.0,
+                "field": "Blood Pressure Order",
+                "action": "Systolic / Diastolic Reorder",
+                "recommendation": f"Realign {inversions} row(s) where Systolic BP < Diastolic BP.",
                 "impact": f"+{round((inversions / len(df)) * 100, 1)}% Validity",
             })
 
@@ -305,7 +340,7 @@ def generate_dataset_suggestions(
 
 
 # ===========================================================================
-# 3. METRICS ENGINE
+# 3. LIVE METRICS ENGINE (NO HARDCODED BENCHMARKS)
 # ===========================================================================
 def calculate_metrics_for_dataset(dataset_id: Optional[str] = None) -> Dict[str, Any]:
     target_id = str(dataset_id or "all").strip()
@@ -318,69 +353,95 @@ def calculate_metrics_for_dataset(dataset_id: Optional[str] = None) -> Dict[str,
 
     all_rows: List[Dict[str, Any]] = []
     for d in active_datasets:
-        all_rows.extend(DATASET_SAMPLES_STORE.get(d["id"], []))
+        ds_key = str(d.get("id", ""))
+        if ds_key:
+            all_rows.extend(DATASET_SAMPLES_STORE.get(ds_key, []))
 
     total_records = len(all_rows)
+    if total_records == 0:
+        return {
+            "status": "empty",
+            "dataset_id": target_id,
+            "actions": 0,
+            "actions_count": 0,
+            "fixes_applied": 0,
+            "issues_fixed": 0,
+            "total_actions": 0,
+            "success_rate": None,
+            "baseline_quality": None,
+            "cleaned_quality": None,
+            "improvement": None,
+            "improvement_pct": None,
+            "record_accuracy": None,
+            "accuracy": None,
+            "rejection_rate": None,
+            "latency_seconds": 0.0,
+            "total_records": 0,
+            "records_evaluated": 0,
+            "issues": {
+                "missing_values": 0,
+                "total_anomalies": 0,
+            },
+            "dimensional_breakdown": {},
+            "trajectories": {
+                "agent": [],
+                "manual": [],
+                "baseline": [],
+            },
+            "resources": {},
+            "suggestions": [],
+            "last_run": None,
+        }
+
     live_metrics = compute_live_dimensional_metrics(all_rows)
     suggestions = generate_dataset_suggestions(target_id, all_rows)
 
-    current_q = round(float(live_metrics.get("global_quality_score", 1.0)), 3)
-    issues_count = int(live_metrics.get("total_issues", 0))
+    current_q = round(
+        _safe_float(live_metrics.get("global_quality_score"), 0.0) or 0.0, 3
+    )
+    issues_count = int(_safe_float(live_metrics.get("total_issues"), 0) or 0)
 
     prev_run = LATEST_CLEANER_RESULTS.get(target_id) or LATEST_CLEANER_RESULTS.get("all")
+    prev_base = (
+        _safe_float(prev_run.get("baseline_quality"))
+        if isinstance(prev_run, dict)
+        else None
+    )
     baseline_q = (
-        round(float(prev_run.get("baseline_quality", current_q)), 3)
-        if prev_run and issues_count == 0
+        round(prev_base, 3)
+        if prev_base is not None and issues_count == 0
         else current_q
     )
     cleaned_q = current_q
     improvement_val = round(max(0.0, (cleaned_q - baseline_q) * 100), 1)
-
-    dataset_count = max(1, len(active_datasets))
-    measured_duration = round(dataset_count * 1.15, 2)
-    manual_total_seconds = dataset_count * MANUAL_HOURS_PER_DATASET * 3600
-    speed_multiplier = round(manual_total_seconds / max(0.001, measured_duration))
-
-    start_base = round(baseline_q * 100, 1)
-    agent_trajectory = []
-    manual_trajectory = []
-    baseline_trajectory = []
-
-    for i in range(1, 11):
-        progress = 1.0 - np.exp(-0.55 * i)
-        agent_trajectory.append(
-            min(99.8, round(start_base + (99.8 - start_base) * progress, 1))
-        )
-        manual_trajectory.append(
-            min(92.5, round(start_base + (92.5 - start_base) * (i / 10.0), 1))
-        )
-        baseline_trajectory.append(max(35.0, round(start_base - (i * 0.5), 1)))
-
-    trajectories = {
-        "agent": agent_trajectory,
-        "manual": manual_trajectory,
-        "baseline": baseline_trajectory,
-    }
+    computed_success_rate = round(
+        max(0.0, (total_records - issues_count) / total_records), 4
+    )
 
     try:
-        cpu_util = round(psutil.cpu_percent(interval=None) or 3.2, 1)
-        mem_mb = round(psutil.Process().memory_info().rss / (1024 * 1024), 1)
+        cpu_util = round(
+            _safe_float(psutil.cpu_percent(interval=None), 0.0) or 0.0, 1
+        )
+        mem_mb = round(
+            (_safe_float(psutil.Process().memory_info().rss, 0.0) or 0.0)
+            / (1024 * 1024),
+            1,
+        )
     except Exception:
-        cpu_util = 3.2
-        mem_mb = 115.0
+        cpu_util = 0.0
+        mem_mb = 0.0
 
     resources = {
         "cpu_utilization_pct": cpu_util,
-        "peak_cpu_pct": round(cpu_util * 1.55, 1),
         "memory_rss_mb": mem_mb,
-        "peak_memory_mb": round(mem_mb * 1.18, 1),
-        "throughput_records_per_sec": round(total_records / measured_duration)
-        if total_records > 0
-        else 0,
-        "memory_per_1k_records_mb": round((mem_mb / max(1, total_records)) * 1000, 1),
-        "speed_multiplier": f"{speed_multiplier:,}x",
-        "cloud_compute_cost_gbp": round(total_records * 0.0001, 2),
     }
+
+    missing_values_count = sum(
+        1
+        for r in all_rows
+        for k, v in r.items()
+        if not str(k).startswith("_") and _is_missing_or_sentinel(v)
+    )
 
     return {
         "status": "completed",
@@ -390,34 +451,27 @@ def calculate_metrics_for_dataset(dataset_id: Optional[str] = None) -> Dict[str,
         "fixes_applied": issues_count,
         "issues_fixed": issues_count,
         "total_actions": issues_count,
-        "success_rate": 0.998 if total_records > 0 else 1.0,
-        "successRate": 0.998 if total_records > 0 else 1.0,
-        "remediation_rate": 0.998 if total_records > 0 else 1.0,
-        "success_rate_pct": "99.8%" if total_records > 0 else "100.0%",
-        "autonomous_coverage": 100.0,
-        "manual_coverage": 66.7,
-        "speed_multiplier": speed_multiplier,
-        "speed_multiplier_str": f"{speed_multiplier:,}x",
+        "success_rate": computed_success_rate,
         "baseline_quality": baseline_q,
         "cleaned_quality": cleaned_q,
         "improvement": f"+{improvement_val}%",
         "improvement_pct": improvement_val,
-        "quality_gain": f"+{improvement_val}%",
-        "record_accuracy": live_metrics.get("accuracy", 1.0),
-        "accuracy": live_metrics.get("accuracy", 1.0),
-        "rejection_rate": 0.0,
-        "latency_seconds": measured_duration,
-        "execution_time_seconds": measured_duration,
+        "record_accuracy": live_metrics.get("accuracy"),
+        "accuracy": live_metrics.get("accuracy"),
+        "rejection_rate": None,
+        "latency_seconds": 0.0,
         "total_records": total_records,
         "records_evaluated": total_records,
         "issues": {
-            "missing_values": int(pd.DataFrame(all_rows).isnull().sum().sum())
-            if all_rows
-            else 0,
+            "missing_values": missing_values_count,
             "total_anomalies": issues_count,
         },
         "dimensional_breakdown": live_metrics,
-        "trajectories": trajectories,
+        "trajectories": {
+            "agent": [],
+            "manual": [],
+            "baseline": [],
+        },
         "resources": resources,
         "suggestions": suggestions,
         "last_run": datetime.now(timezone.utc).isoformat(),
@@ -451,7 +505,11 @@ async def execute_cleaner(
     target_id = str(raw_target).strip()
 
     if target_id == "all":
-        datasets_to_process = [d["id"] for d in DATASETS_STORE if is_active_input_dataset(d)]
+        datasets_to_process = [
+            str(d.get("id"))
+            for d in DATASETS_STORE
+            if is_active_input_dataset(d) and d.get("id")
+        ]
     else:
         datasets_to_process = (
             [target_id]
@@ -470,9 +528,12 @@ async def execute_cleaner(
     cleaned_export_manifests = []
 
     for ds_id in datasets_to_process:
-        records = DATASET_SAMPLES_STORE.get(str(ds_id), [])
+        ds_key = str(ds_id)
+        records = DATASET_SAMPLES_STORE.get(ds_key, [])
         pre_metrics = compute_live_dimensional_metrics(records)
-        pre_quality = round(float(pre_metrics.get("global_quality_score", 1.0)), 3)
+        pre_quality = round(
+            _safe_float(pre_metrics.get("global_quality_score"), 0.0) or 0.0, 3
+        )
         age_fallback = _compute_cohort_age_median(records)
 
         repaired_in_dataset = 0
@@ -490,19 +551,22 @@ async def execute_cleaner(
             cleaned_cohort.append(clean_row)
 
         post_metrics = compute_live_dimensional_metrics(cleaned_cohort)
-        post_quality = round(float(post_metrics.get("global_quality_score", 1.0)), 3)
+        post_quality = round(
+            _safe_float(post_metrics.get("global_quality_score"), 0.0) or 0.0, 3
+        )
+        post_issues = int(_safe_float(post_metrics.get("total_issues"), 0) or 0)
 
-        DATASET_SAMPLES_STORE[str(ds_id)] = cleaned_cohort
+        DATASET_SAMPLES_STORE[ds_key] = cleaned_cohort
         total_repaired_across_corpus += repaired_in_dataset
 
         source_meta = next(
-            (d for d in DATASETS_STORE if str(d.get("id")) == str(ds_id)), None
+            (d for d in DATASETS_STORE if str(d.get("id")) == ds_key), None
         )
-        raw_name = str((source_meta or {}).get("name", f"dataset_{ds_id}.csv"))
+        raw_name = str((source_meta or {}).get("name", f"dataset_{ds_key}.csv"))
         if source_meta is not None:
             source_meta["status"] = "OPTIMAL"
-            source_meta["anomalies_count"] = int(post_metrics.get("total_issues", 0))
-            source_meta["anomalies"] = int(post_metrics.get("total_issues", 0))
+            source_meta["anomalies_count"] = post_issues
+            source_meta["anomalies"] = post_issues
             source_meta["post_clean_score"] = post_quality
 
         fields_desc = (
@@ -512,18 +576,18 @@ async def execute_cleaner(
         )
         _record_remediation_log(
             session,
-            str(ds_id),
+            ds_key,
             repaired_in_dataset,
             len(cleaned_cohort),
             f"Remediated {repaired_in_dataset}/{len(cleaned_cohort)} rows on {raw_name}: {fields_desc}.",
         )
 
-        clean_filename_base = format_clean_export_filename(raw_name, str(ds_id))
-        export_token = f"exp_{str(ds_id)}_{uuid.uuid4().hex[:4]}"
+        clean_filename_base = format_clean_export_filename(raw_name, ds_key)
+        export_token = f"exp_{ds_key}_{uuid.uuid4().hex[:4]}"
 
         CLEANED_EXPORTS_STORE[export_token] = {
             "token": export_token,
-            "source_dataset_id": ds_id,
+            "source_dataset_id": ds_key,
             "filename_base": clean_filename_base,
             "display_name": f"{clean_filename_base}.csv",
             "total_records": len(cleaned_cohort),
@@ -533,7 +597,7 @@ async def execute_cleaner(
 
         manifest = {
             "export_token": export_token,
-            "source_dataset_id": ds_id,
+            "source_dataset_id": ds_key,
             "display_name": f"{clean_filename_base}.csv",
             "filename_base": clean_filename_base,
             "total_records": len(cleaned_cohort),
@@ -543,17 +607,29 @@ async def execute_cleaner(
         }
         cleaned_export_manifests.append(manifest)
 
+        run_success = (
+            round(
+                max(
+                    0.0,
+                    (len(cleaned_cohort) - post_issues) / len(cleaned_cohort),
+                ),
+                4,
+            )
+            if len(cleaned_cohort) > 0
+            else None
+        )
+
         run_summary = {
-            "dataset_id": ds_id,
+            "dataset_id": ds_key,
             "records_evaluated": len(cleaned_cohort),
             "anomalies_repaired": repaired_in_dataset,
             "baseline_quality": pre_quality,
             "cleaned_quality": post_quality,
-            "success_rate": 0.998 if len(cleaned_cohort) > 0 else 1.0,
+            "success_rate": run_success,
             "cleaned_exports": [manifest],
         }
         aggregated_runs.append(run_summary)
-        LATEST_CLEANER_RESULTS[str(ds_id)] = run_summary
+        LATEST_CLEANER_RESULTS[ds_key] = run_summary
 
     save_persisted_storage()
 
@@ -566,6 +642,7 @@ async def execute_cleaner(
     LATEST_CLEANER_RESULTS["all"] = last_run_result
 
     response_metrics = calculate_metrics_for_dataset(target_id)
+    response_metrics["latency_seconds"] = duration_sec
     response_metrics["cleaned_exports"] = cleaned_export_manifests
     response_metrics["results"] = {
         "cleaner": last_run_result,
@@ -582,49 +659,23 @@ async def download_cleaned_dataset_csv(dataset_id: Optional[str] = Query("all"))
     """Streams the cleaned dataset as a CSV file starting with 'clean_'."""
     target_id = str(dataset_id or "all").strip()
 
-    for exp in reversed(list(CLEANED_EXPORTS_STORE.values())):
-        if target_id == "all" or exp.get("source_dataset_id") == target_id:
-            records = exp.get("records", [])
-            if records:
-                filename = f"{exp['filename_base']}.csv"
-                df = pd.DataFrame(records)
-                stream = io.StringIO()
-                df.to_csv(stream, index=False)
-                return Response(
-                    content=stream.getvalue(),
-                    media_type="text/csv",
-                    headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-                )
-
-    active_ids = (
-        [d["id"] for d in DATASETS_STORE if is_active_input_dataset(d)]
-        if target_id == "all"
-        else [target_id]
-    )
-
-    cleaned_records = []
-    source_name = "cohort"
-    for d_id in active_ids:
-        source_meta = next(
-            (d for d in DATASETS_STORE if str(d.get("id")) == str(d_id)), {}
+    cached = _find_cached_export(target_id)
+    if cached:
+        filename = f"{cached['filename_base']}.csv"
+        df = pd.DataFrame(cached["records"])
+        stream = io.StringIO()
+        df.to_csv(stream, index=False)
+        return Response(
+            content=stream.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-        source_name = str(source_meta.get("name", d_id))
-        raw_recs = DATASET_SAMPLES_STORE.get(str(d_id), [])
-        age_fallback = _compute_cohort_age_median(raw_recs)
-        for r in raw_recs:
-            clean_row, _, _ = remediate_record(r, cohort_age_fallback=age_fallback)
-            cleaned_records.append(clean_row)
 
+    cleaned_records, out_base = _build_cleaned_records_for_scope(target_id)
     if not cleaned_records:
         raise HTTPException(
             status_code=404, detail="No records available to clean and export."
         )
-
-    out_base = (
-        "clean_all_datasets"
-        if target_id == "all"
-        else format_clean_export_filename(source_name, target_id)
-    )
 
     df = pd.DataFrame(cleaned_records)
     stream = io.StringIO()
@@ -642,47 +693,28 @@ async def download_cleaned_dataset_json(dataset_id: Optional[str] = Query("all")
     """Streams the cleaned dataset as a JSON file starting with 'clean_'."""
     target_id = str(dataset_id or "all").strip()
 
-    for exp in reversed(list(CLEANED_EXPORTS_STORE.values())):
-        if target_id == "all" or exp.get("source_dataset_id") == target_id:
-            filename = f"{exp['filename_base']}.json"
-            payload = {
-                "status": "CLEANED_VERIFIED",
-                "dataset_name": exp["display_name"],
-                "total_records": exp["total_records"],
-                "anomalies_resolved": exp["anomalies_resolved"],
-                "exported_at": datetime.now(timezone.utc).isoformat(),
-                "records": exp["records"],
-            }
-            return Response(
-                content=json.dumps(payload, indent=2),
-                media_type="application/json",
-                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-            )
-
-    active_ids = (
-        [d["id"] for d in DATASETS_STORE if is_active_input_dataset(d)]
-        if target_id == "all"
-        else [target_id]
-    )
-
-    cleaned_records = []
-    source_name = "cohort"
-    for d_id in active_ids:
-        source_meta = next(
-            (d for d in DATASETS_STORE if str(d.get("id")) == str(d_id)), {}
+    cached = _find_cached_export(target_id)
+    if cached:
+        filename = f"{cached['filename_base']}.json"
+        payload = {
+            "status": "CLEANED_VERIFIED",
+            "dataset_name": cached["display_name"],
+            "total_records": cached["total_records"],
+            "anomalies_resolved": cached["anomalies_resolved"],
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "records": cached["records"],
+        }
+        return Response(
+            content=json.dumps(payload, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-        source_name = str(source_meta.get("name", d_id))
-        raw_recs = DATASET_SAMPLES_STORE.get(str(d_id), [])
-        age_fallback = _compute_cohort_age_median(raw_recs)
-        for r in raw_recs:
-            clean_row, _, _ = remediate_record(r, cohort_age_fallback=age_fallback)
-            cleaned_records.append(clean_row)
 
-    out_base = (
-        "clean_all_datasets"
-        if target_id == "all"
-        else format_clean_export_filename(source_name, target_id)
-    )
+    cleaned_records, out_base = _build_cleaned_records_for_scope(target_id)
+    if not cleaned_records:
+        raise HTTPException(
+            status_code=404, detail="No records available to clean and export."
+        )
 
     payload = {
         "status": "CLEANED_VERIFIED",
@@ -759,22 +791,15 @@ async def get_cleaner_manual(dataset_id: Optional[str] = None):
         sum(int(d.get("anomalies_count", 0)) for d in active_ds) if is_batch else 0
     )
 
-    total_hours = round(dataset_count * MANUAL_HOURS_PER_DATASET, 1)
-    total_cost = round(total_hours * HOURLY_RATE_GBP, 2)
-
     return {
         "dataset_id": target_id,
-        "quality_score": 0.895,
-        "quality": 0.895,
-        "record_accuracy": 0.895,
-        "accuracy": 0.895,
-        "issues_fixed": int(round(total_anomalies * 0.667)),
+        "dataset_count": dataset_count,
+        "quality_score": None,
+        "quality": None,
+        "record_accuracy": None,
+        "accuracy": None,
+        "issues_fixed": 0,
         "actions": total_anomalies,
-        "review_hours_per_dataset": MANUAL_HOURS_PER_DATASET,
-        "time_spent_hours": total_hours,
-        "steward_hourly_rate_gbp": HOURLY_RATE_GBP,
-        "hourly_rate_gbp": HOURLY_RATE_GBP,
-        "labor_cost_gbp": total_cost,
     }
 
 

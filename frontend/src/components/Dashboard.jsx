@@ -50,11 +50,16 @@ export default function Dashboard() {
   const [viewerDatasetId, setViewerDatasetId] = useState(null);
   const [activeDataTab, setActiveDataTab] = useState("registry");
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   const [selectedDataset, setSelectedDataset] = useState("all");
   const [loadingCleaner, setLoadingCleaner] = useState(false);
   const [showHistoryDrawer, setShowHistoryDrawer] = useState(false);
   const [manualMetricsData, setManualMetricsData] = useState(null);
+
+  const bumpRefreshTrigger = useCallback(() => {
+    setRefreshTrigger((prev) => prev + 1);
+  }, []);
 
   const openViewerModal = (datasetId) => {
     setViewerDatasetId(datasetId);
@@ -171,6 +176,7 @@ export default function Dashboard() {
       });
 
       await Promise.all([refreshHistory(dsId), refreshAll()]);
+      bumpRefreshTrigger();
     } catch (err) {
       console.error("runCleaner error:", err);
     } finally {
@@ -205,6 +211,7 @@ export default function Dashboard() {
       });
 
       await Promise.all([refreshHistory(dsId), refreshAll()]);
+      bumpRefreshTrigger();
     } catch (err) {
       console.error("runAllAgents error:", err);
     } finally {
@@ -300,6 +307,7 @@ export default function Dashboard() {
           onUploaded={async () => {
             await refreshAll();
             await refreshHistory(selectedDataset);
+            bumpRefreshTrigger();
           }}
         />
       </section>
@@ -346,7 +354,7 @@ export default function Dashboard() {
                   }}
                   className="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shadow-sm"
                 >
-                  Record Preview ({effectiveDatasetId || "-"})
+                  Record Preview ({effectiveDatasetId || "—"})
                 </button>
               </div>
 
@@ -374,9 +382,13 @@ export default function Dashboard() {
                   onRefresh={async () => {
                     await refreshAll();
                     await loadCleanerData(selectedDataset);
+                    bumpRefreshTrigger();
                   }}
                   onOpenFullViewer={openViewerModal}
-                  onSelectDataset={(id) => setSelectedDataset(id)}
+                  onSelectDataset={(id) => {
+                    setSelectedDataset(id);
+                    bumpRefreshTrigger();
+                  }}
                 />
               ) : hasDatasets && effectiveDatasetId ? (
                 <RecordsTable
@@ -385,7 +397,7 @@ export default function Dashboard() {
                 />
               ) : (
                 <div className="p-6 text-center text-xs text-gray-400 italic">
-                  No dataset loaded (-). Upload a CSV or JSON file to preview
+                  No dataset loaded (—). Upload a CSV or JSON file to preview
                   records.
                 </div>
               )}
@@ -395,7 +407,10 @@ export default function Dashboard() {
           <CleanerAgentCard
             datasets={visibleDatasets}
             datasetId={selectedDataset}
-            onSelectDataset={(id) => setSelectedDataset(id)}
+            onSelectDataset={(id) => {
+              setSelectedDataset(id);
+              bumpRefreshTrigger();
+            }}
             metrics={hasDatasets ? cleanerMetrics : null}
             loading={loadingCleaner}
             onRunCleaner={runCleaner}
@@ -423,7 +438,7 @@ export default function Dashboard() {
               <DatasetRiskMap
                 risk={
                   metrics?.risk?.[effectiveDatasetId] || {
-                    level: "-",
+                    level: "—",
                     factors: [],
                   }
                 }
@@ -459,19 +474,30 @@ export default function Dashboard() {
 
         <div className="space-y-6">
           <MetricsPanel
-            metrics={hasDatasets ? metrics : null}
+            hasDatasets={hasDatasets}
             datasets={visibleDatasets}
-            onRefresh={refreshAll}
+            metrics={hasDatasets ? metrics : null}
+            cleanerMetrics={hasDatasets ? cleanerMetrics : null}
+            refreshTrigger={refreshTrigger}
+            onRefresh={async () => {
+              await refreshAll();
+              bumpRefreshTrigger();
+            }}
           />
 
           <AgentMetricsPanel
             hasDatasets={hasDatasets}
             datasetId={selectedDataset}
+            refreshTrigger={refreshTrigger}
+            fallbackMetrics={cleanerMetrics}
           />
 
           {showDiagnostics && (
             <>
-              <BaselineMetricsPanel />
+              <BaselineMetricsPanel
+                hasDatasets={hasDatasets}
+                refreshTrigger={refreshTrigger}
+              />
               <EvaluationPanel
                 hasDatasets={hasDatasets}
                 datasetId={selectedDataset}
@@ -479,7 +505,10 @@ export default function Dashboard() {
               <ExperimentRunner
                 hasDatasets={hasDatasets}
                 datasets={visibleDatasets}
-                onCompleted={refreshAll}
+                onCompleted={async () => {
+                  await refreshAll();
+                  bumpRefreshTrigger();
+                }}
               />
               <SystemNotes />
             </>

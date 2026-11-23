@@ -2,15 +2,11 @@
 import React from "react";
 import PropTypes from "prop-types";
 
-/**
- * ComparisonCleanerManual
- * Side-by-side comparison of automated cleaner metrics vs manual fixes.
- * Polymorphically resolves data keys across active dataset partitions.
- */
 export default function ComparisonCleanerManual({
   cleanerMetrics = null,
   manualMetrics = null,
   datasetId = "all",
+  hasDatasets = true,
 }) {
   const safeFloat = (v, fallback = null) => {
     if (v === null || v === undefined) return fallback;
@@ -18,56 +14,63 @@ export default function ComparisonCleanerManual({
     return Number.isFinite(parsed) ? parsed : fallback;
   };
 
-  // 1. Resolve Cleaner Agent Metrics
+  const activeCleaner = hasDatasets ? cleanerMetrics : null;
+  const activeManual = hasDatasets ? manualMetrics : null;
+
   const cleanerObj =
-    cleanerMetrics?.cleaner ??
-    cleanerMetrics?.[datasetId] ??
-    cleanerMetrics ??
-    {};
+    activeCleaner?.cleaner ??
+    activeCleaner?.[datasetId] ??
+    activeCleaner ??
+    null;
 
-  const cleanerQualityRaw = safeFloat(
-    cleanerObj?.cleaned_quality ??
-      cleanerObj?.quality_score ??
-      cleanerObj?.quality,
-    0.994,
-  );
-  const cleanerRecordAccRaw = safeFloat(
-    cleanerObj?.record_accuracy ?? cleanerObj?.accuracy,
-    0.994,
-  );
-  const cleanerActions = safeFloat(
-    cleanerObj?.actions ??
-      cleanerObj?.fixes_applied ??
-      cleanerObj?.actions_count ??
-      cleanerObj?.issues_fixed,
-    310,
-  );
+  const cleanerQualityRaw = cleanerObj
+    ? safeFloat(
+        cleanerObj?.cleaned_quality ??
+          cleanerObj?.quality_score ??
+          cleanerObj?.quality,
+        null,
+      )
+    : null;
+  const cleanerRecordAccRaw = cleanerObj
+    ? safeFloat(cleanerObj?.record_accuracy ?? cleanerObj?.accuracy, null)
+    : null;
+  const cleanerActions = cleanerObj
+    ? (safeFloat(
+        cleanerObj?.actions ??
+          cleanerObj?.fixes_applied ??
+          cleanerObj?.actions_count ??
+          cleanerObj?.issues_fixed,
+        0,
+      ) ?? 0)
+    : 0;
 
-  // 2. Resolve Manual Fixes Metrics (Resolves "—")
   const manualObj =
-    manualMetrics?.manual ??
-    manualMetrics?.[datasetId] ??
-    manualMetrics?.["all"] ??
-    manualMetrics ??
-    {};
+    activeManual?.manual ??
+    activeManual?.[datasetId] ??
+    activeManual?.["all"] ??
+    activeManual ??
+    null;
 
-  const manualQualityRaw = safeFloat(
-    manualObj?.quality_score ??
-      manualObj?.cleaned_quality ??
-      manualObj?.quality,
-    0.895,
-  );
-  const manualRecordAccRaw = safeFloat(
-    manualObj?.record_accuracy ?? manualObj?.accuracy,
-    0.895,
-  );
-  const manualIssues = safeFloat(
-    manualObj?.issues_fixed ??
-      manualObj?.actions ??
-      manualObj?.issues ??
-      manualObj?.fixes,
-    310,
-  );
+  const manualQualityRaw = manualObj
+    ? safeFloat(
+        manualObj?.quality_score ??
+          manualObj?.cleaned_quality ??
+          manualObj?.quality,
+        null,
+      )
+    : null;
+  const manualRecordAccRaw = manualObj
+    ? safeFloat(manualObj?.record_accuracy ?? manualObj?.accuracy, null)
+    : null;
+  const manualIssues = manualObj
+    ? (safeFloat(
+        manualObj?.issues_fixed ??
+          manualObj?.actions ??
+          manualObj?.issues ??
+          manualObj?.fixes,
+        0,
+      ) ?? 0)
+    : 0;
 
   const fmtPercent = (val) => {
     if (val === null || val === undefined) return "—";
@@ -90,12 +93,14 @@ export default function ComparisonCleanerManual({
           Cleaner vs Manual Fixes
         </h4>
         <span className="text-[11px] font-mono text-gray-400">
-          Partition: <strong className="text-gray-200">{datasetId}</strong>
+          Partition:{" "}
+          <strong className="text-gray-200">
+            {hasDatasets ? datasetId : "—"}
+          </strong>
         </span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Autonomous Cleaner Agent */}
         <section
           aria-labelledby="cleaner-heading"
           className="p-4 rounded-xl bg-brand-dark border border-brand-accent/20 space-y-3"
@@ -108,7 +113,7 @@ export default function ComparisonCleanerManual({
               Autonomous Cleaner Agent
             </h5>
             <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              High Accuracy
+              {cleanerQualityRaw !== null ? "Active Telemetry" : "—"}
             </span>
           </div>
 
@@ -129,12 +134,11 @@ export default function ComparisonCleanerManual({
           <div>
             <div className="text-xs text-gray-400">Issues Fixed</div>
             <div className="text-gray-100 text-lg font-bold font-mono mt-0.5">
-              {cleanerActions !== null ? cleanerActions : "310"}
+              {hasDatasets ? cleanerActions : 0}
             </div>
           </div>
         </section>
 
-        {/* Manual Data Steward Remediation */}
         <section
           aria-labelledby="manual-heading"
           className="p-4 rounded-xl bg-brand-dark border border-brand-accent/15 space-y-3"
@@ -168,7 +172,7 @@ export default function ComparisonCleanerManual({
           <div>
             <div className="text-xs text-gray-400">Issues Fixed</div>
             <div className="text-amber-400 text-lg font-bold font-mono mt-0.5">
-              {manualIssues !== null ? manualIssues : "310"}
+              {hasDatasets ? manualIssues : 0}
             </div>
           </div>
         </section>
@@ -181,4 +185,5 @@ ComparisonCleanerManual.propTypes = {
   cleanerMetrics: PropTypes.oneOfType([PropTypes.object, PropTypes.array]),
   manualMetrics: PropTypes.oneOfType([PropTypes.object, PropTypes.array]),
   datasetId: PropTypes.string,
+  hasDatasets: PropTypes.bool,
 };
